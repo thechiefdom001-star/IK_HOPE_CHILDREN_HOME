@@ -1,0 +1,1748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OrphanCare - Premium Orphanage Management System</title>
+  
+  <!-- SEO & Accessibility Metadata -->
+  <meta name="description" content="State of the art cloud-connected Orphanage logistics, schooling, clinic, food planning, and donation auditing database engine.">
+  <meta name="theme-color" content="#0d1527">
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Chart.js for Gorgeous Interactive Visualizations -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- ================= AUTH LOGIN OVERLAY ================= -->
+  <div id="login-overlay">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="logo-icon">♥️</div>
+        <h2>OrphanCare Cloud</h2>
+        <p>Premium Logistical Auditing Platform</p>
+      </div>
+      
+      <!-- Login & Sign-Up Tabs Header -->
+      <div class="auth-tabs" id="auth-tabs-nav">
+        <button class="auth-tab-btn active" id="auth-tab-login-btn" onclick="switchAuthTab('login')">Sign In</button>
+        <button class="auth-tab-btn" id="auth-tab-signup-btn" onclick="switchAuthTab('signup')">Sign Up</button>
+      </div>
+      
+      <!-- Form 1: LOGIN SECTION -->
+      <div id="auth-login-section" style="display:flex; flex-direction:column; gap:16px">
+        <form id="auth-login-form" onsubmit="event.preventDefault(); handleAuthLogin();" style="display:flex; flex-direction:column; gap:16px">
+          <div class="form-group" style="text-align:left">
+            <label for="login-email">Email Address</label>
+            <input type="email" id="login-email" class="form-input" placeholder="e.g. name@domain.com" required>
+          </div>
+          <div class="form-group" style="text-align:left">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" class="form-input" placeholder="••••••••" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="padding:14px">Unlock System View</button>
+        </form>
+
+      </div>
+      
+      <!-- Form 2: SIGN-UP SECTION (Initially Hidden) -->
+      <div id="auth-signup-section" style="display:none; flex-direction:column; gap:16px">
+        <form id="auth-signup-form" onsubmit="event.preventDefault(); handleAuthSignUp();" style="display:flex; flex-direction:column; gap:16px">
+          <div class="form-group" style="text-align:left">
+            <label for="signup-name">Full Name</label>
+            <input type="text" id="signup-name" class="form-input" placeholder="e.g. Jane Doe" required>
+          </div>
+          <div class="form-group" style="text-align:left">
+            <label for="signup-email">Email Address</label>
+            <input type="email" id="signup-email" class="form-input" placeholder="e.g. name@domain.com" required>
+          </div>
+          <div class="form-group" style="text-align:left">
+            <label for="signup-password">Password</label>
+            <input type="password" id="signup-password" class="form-input" placeholder="••••••••" required>
+          </div>
+          <div class="form-group" style="text-align:left">
+            <label for="signup-role">Select System Role</label>
+            <select id="signup-role" class="form-select" required>
+              <option value="Staff">Staff Ops</option>
+              <option value="Admin">Admin</option>
+              <option value="Donor-Viewer">Donors</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-accent" style="padding:14px">Register Account</button>
+        </form>
+      </div>
+      
+      <!-- Form 3: OTP VERIFICATION VIEW (Initially Hidden) -->
+      <div id="auth-otp-section" style="display:none; flex-direction:column; gap:16px">
+        <div class="alert-banner alert-banner-info">
+          <svg viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          <div style="text-align:left">
+            <h4 style="font-size:0.9rem">Security Code Dispatched</h4>
+            <p style="font-size:0.75rem">A 6-digit OTP code has been sent to the configured Admin OTP email address.</p>
+          </div>
+        </div>
+        <form id="auth-otp-form" onsubmit="event.preventDefault(); handleAuthOTPVerify();" style="display:flex; flex-direction:column; gap:16px">
+          <div class="form-group" style="text-align:left">
+            <label for="otp-code">6-Digit Verification Code</label>
+            <input type="text" id="otp-code" class="form-input" placeholder="000000" maxlength="6" style="text-align:center; font-size:1.4rem; letter-spacing:0.3em; font-weight:700" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="padding:14px">Confirm Verification Code</button>
+          <button type="button" class="btn btn-secondary" onclick="cancelOTPFlow()">Back to Sign In</button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= APP SHELL LAYOUT ================= -->
+  <div id="app-shell" style="display:none">
+    
+    <!-- SIDEBAR NAVIGATION -->
+    <aside id="sidebar-container" class="sidebar">
+      <div class="logo-container">
+        <div class="logo-icon">♥</div>
+        <div class="logo-text">
+          <h2>OrphanCare</h2>
+          <p>Cloud Treasury</p>
+        </div>
+      </div>
+      
+      <ul class="nav-links">
+        <li class="nav-item active" data-tab="dashboard">
+          <a href="#">
+            <svg viewBox="0 0 24 24"><path d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+            <span>Dashboard</span>
+          </a>
+        </li>
+        <li class="nav-item" data-tab="home">
+          <a href="#">
+            <svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+            <span>Home Logistics</span>
+          </a>
+        </li>
+        <li class="nav-item" data-tab="food">
+          <a href="#">
+            <svg viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg>
+            <span>Food & Nutrition</span>
+          </a>
+        </li>
+        <li class="nav-item" data-tab="school">
+          <a href="#">
+            <svg viewBox="0 0 24 24"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+            <span>Schooling</span>
+          </a>
+        </li>
+        <li class="nav-item" data-tab="medical">
+          <a href="#">
+            <svg viewBox="0 0 24 24"><path d="M4.5 10.5C3.67 10.5 3 11.17 3 12s.67 1.5 1.5 1.5h15c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5h-15zM12 3v18"/></svg>
+            <span>Medical Clinic</span>
+          </a>
+        </li>
+        <li class="nav-item" data-tab="finances">
+          <a href="#">
+            <svg viewBox="0 0 24 24"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M12 16v1M5 12h14"/></svg>
+            <span>Finances</span>
+          </a>
+        </li>
+        <li class="nav-item" data-tab="donors">
+          <a href="#">
+            <svg viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+            <span>Donors & Impact</span>
+          </a>
+        </li>
+        <li id="nav-settings-link" class="nav-item" data-tab="settings" style="display:none">
+          <a href="#">
+            <svg viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <span>App Settings</span>
+          </a>
+        </li>
+      </ul>
+      
+      <!-- SIDEBAR FOOTER -->
+      <div class="sidebar-footer">
+        <div class="user-profile-badge">
+          <div id="sidebar-user-avatar" class="profile-avatar">DU</div>
+          <div class="profile-info">
+            <span id="sidebar-user-name" class="profile-name">Guest User</span>
+            <span id="sidebar-user-role" class="profile-role">DONOR REVIEW</span>
+          </div>
+        </div>
+        
+        <button id="theme-toggle" class="theme-toggle-btn" title="Toggle Light/Dark Theme">
+          <svg id="theme-icon" viewBox="0 0 24 24" style="width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:2">
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          </svg>
+          <span>Visual Theme</span>
+        </button>
+        
+        <button id="logout-btn" class="logout-btn" title="Sign out of Current Role">
+          <svg viewBox="0 0 24 24" style="width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:2"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+          <span>Exit App View</span>
+        </button>
+      </div>
+    </aside>
+    
+    <!-- MAIN APPLICATION CONTAINER -->
+    <main class="main-content">
+      
+      <!-- ACTION TOP BAR -->
+      <div class="top-bar">
+        <div style="display:flex; align-items:center; gap:16px">
+          <!-- Mobile Drawer Toggle -->
+          <button id="hamburger-toggle" class="hamburger-menu-btn">
+            <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="page-title">
+            <h1 id="header-title-text">Operational Dashboard</h1>
+            <p id="header-desc-text">Real-time overview of orphanage logistical databases</p>
+          </div>
+        </div>
+        
+        <div class="top-bar-actions">
+          <div class="connection-indicator" onclick="syncWithCloud()">
+            <span id="conn-dot" class="indicator-dot offline"></span>
+            <span id="conn-label">Synchronizing Database...</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- ================= 0. DASHBOARD PANEL ================= -->
+      <section id="dashboard-panel" class="tab-panel active">
+        <!-- Metric Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-info">
+              <h3>Children Supported</h3>
+              <div id="db-metric-total-children" class="metric-value">0</div>
+              <div class="metric-subtitle">Currently Enrolled</div>
+            </div>
+            <div class="metric-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8z"/></svg>
+            </div>
+          </div>
+          
+          <div class="metric-card">
+            <div class="metric-info">
+              <h3>Room Occupancy</h3>
+              <div id="db-metric-occupancy" class="metric-value">0%</div>
+              <div id="db-metric-occupancy-sub" class="metric-subtitle">Beds Utilized</div>
+            </div>
+            <div class="metric-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+            </div>
+          </div>
+          
+          <div class="metric-card">
+            <div class="metric-info">
+              <h3>Outstanding Fees</h3>
+              <div id="db-metric-fees" class="metric-value">$0</div>
+              <div class="metric-subtitle">School Fee Balance</div>
+            </div>
+            <div class="metric-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M12 16v1M5 12h14"/></svg>
+            </div>
+          </div>
+          
+          <div class="metric-card">
+            <div class="metric-info">
+              <h3>Low Kitchen Stock</h3>
+              <div id="db-metric-stock" class="metric-value">0</div>
+              <div class="metric-subtitle">Stock Items Alert</div>
+            </div>
+            <div class="metric-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Graphs Grid -->
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-header">
+              <div class="chart-title">
+                <h3>Finance Ledger Summary</h3>
+                <p>Audited Total Grants Funding vs Logistics Expenditures</p>
+              </div>
+            </div>
+            <div class="chart-body">
+              <canvas id="chart-finance-canvas"></canvas>
+            </div>
+          </div>
+          
+          <div class="chart-card">
+            <div class="chart-header">
+              <div class="chart-title">
+                <h3>Dormitory Allocation</h3>
+                <p>Bed spaces occupied sorted by gender type</p>
+              </div>
+            </div>
+            <div class="chart-body">
+              <canvas id="chart-occupancy-canvas"></canvas>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Quick Log feeds -->
+        <div class="chart-card" style="width:100%">
+          <div class="chart-header">
+            <div class="chart-title">
+              <h3>Recent Institutional Log Feeds</h3>
+              <p>Operational entries recorded in real-time</p>
+            </div>
+          </div>
+          <div id="dashboard-feed-list" style="display:flex; flex-direction:column; gap:4px">
+            <!-- Dynamically populated activity items -->
+          </div>
+        </div>
+      </section>
+      
+      <!-- ================= 1. HOME LOGISTICS PANEL ================= -->
+      <section id="home-panel" class="tab-panel">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px">
+          <div class="filter-actions">
+            <button class="btn btn-primary staff-admin-only" onclick="showAddChildModal()">
+              <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+              <span>Enroll New Child</span>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Child Enrolled list -->
+        <div class="table-filter-header">
+          <div class="search-box-wrapper">
+            <svg viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input type="text" id="children-search-bar" class="search-input" placeholder="Search children records by ID or Name..." onkeyup="filterChildrenTable()">
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="app-table" data-print-title="Children Registry">
+            <thead>
+              <tr>
+                <th>Portrait</th>
+                <th>Child Name / ID</th>
+                <th>Age</th>
+                <th>Gender</th>
+                <th>Entry Date</th>
+                <th>Emergency Guardian</th>
+                <th>Room Allocation</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="home-children-table-body">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+        
+        <!-- Rooms list -->
+        <div class="top-bar" style="margin-top:24px; padding-bottom:8px">
+          <div class="page-title">
+            <h2 style="font-size:1.4rem">Dormitory Rooms & Bed Audits</h2>
+            <p style="font-size:0.8rem; color:var(--text-muted)">Visual tracking of beds, capacity limits and logs</p>
+          </div>
+          <button class="btn btn-primary staff-admin-only" onclick="showAddRoomModal()">
+            <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+            <span>Add Room</span>
+          </button>
+        </div>
+        <div id="home-rooms-grid" class="metrics-grid">
+          <!-- Rendered rooms list -->
+        </div>
+      </section>
+      
+      <!-- ================= 2. FOOD & NUTRITION PANEL ================= -->
+      <section id="food-panel" class="tab-panel">
+        <!-- Sub navigation tabs -->
+        <div class="sub-tabs" id="food-sub-tabs">
+          <button class="sub-tab-btn active" data-subtab="meals">Meal Planner & Targets</button>
+          <button class="sub-tab-btn" data-subtab="inventory">Kitchen Pantry Inventory</button>
+          <button class="sub-tab-btn" data-subtab="shopping">Auto Low-Stock Shopping List</button>
+        </div>
+        
+        <!-- SECTION A: MEAL PLANNING -->
+        <div id="food-meals-section" class="food-sub-section" style="display:flex; flex-direction:column; gap:20px">
+          <div style="display:flex; justify-content:flex-end">
+            <button class="btn btn-primary staff-admin-only" onclick="showAddMealModal()">
+              <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+              <span>Plan Daily Meal Menu</span>
+            </button>
+          </div>
+          <div class="table-container" style="border:1px solid var(--border-color); border-radius:16px">
+            <table class="app-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Meal Category</th>
+                  <th>Planned Menu Items</th>
+                  <th>Nutritional Calories</th>
+                  <th>Proteins Intake</th>
+                  <th>Operational Cost/Child</th>
+                  <th class="staff-admin-only">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="food-meals-table-body">
+                <!-- Rendered meals -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <!-- SECTION B: INVENTORY -->
+        <div id="food-inventory-section" class="food-sub-section" style="display:none; flex-direction:column; gap:20px">
+          <div style="display:flex; justify-content:flex-end">
+            <button class="btn btn-primary staff-admin-only" onclick="showAddInventoryModal()">
+              <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+              <span>Add Kitchen Pantry Item</span>
+            </button>
+          </div>
+          <div class="table-container" style="border:1px solid var(--border-color); border-radius:16px">
+            <table class="app-table">
+              <thead>
+                <tr>
+                  <th>Ingredient Item</th>
+                  <th>Category</th>
+                  <th>Total Stock In</th>
+                  <th>Dispensed Out</th>
+                  <th>Current Stock</th>
+                  <th>Expiry Date</th>
+                  <th>Status Indicator</th>
+                  <th class="staff-admin-only">Action</th>
+                </tr>
+              </thead>
+              <tbody id="food-inventory-table-body">
+                <!-- Rendered stock entries -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <!-- SECTION C: AUTO SHOPPING LIST -->
+        <div id="food-shopping-section" class="food-sub-section" style="display:none; flex-direction:column; gap:16px">
+          <div class="top-bar" style="padding-bottom:8px">
+            <div class="page-title">
+              <h3 style="font-size:1.2rem">Auto-Generated Kitchen Restock Sheet</h3>
+              <p style="font-size:0.75rem; color:var(--text-muted)">Calculated based on pantry items falling below safety reorder threshold (10 units)</p>
+            </div>
+          </div>
+          <div id="shopping-list-container" class="metrics-grid">
+            <!-- Low stock auto generator -->
+          </div>
+        </div>
+      </section>
+      
+      <!-- ================= 3. SCHOOLING PANEL ================= -->
+      <section id="school-panel" class="tab-panel">
+        <div class="sub-tabs" id="school-sub-tabs">
+          <button class="sub-tab-btn active" data-subtab="enrollment">Academic Enrollments</button>
+          <button class="sub-tab-btn" data-subtab="fees">School Fees Balances</button>
+          <button class="sub-tab-btn" data-subtab="reports">Anonymized Report Cards</button>
+        </div>
+        
+        <!-- SECTION A: ENROLLMENT -->
+        <div id="school-enrollment-section" class="school-sub-section" style="display:flex; flex-direction:column; gap:20px">
+          <div style="display:flex; justify-content:flex-end">
+            <button class="btn btn-primary staff-admin-only" onclick="showAddEnrollmentModal()">
+              <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+              <span>Enroll Child in Academy</span>
+            </button>
+          </div>
+          <div class="table-container" style="border:1px solid var(--border-color); border-radius:16px">
+            <table class="app-table">
+              <thead>
+                <tr>
+                  <th>Child Name / ID</th>
+                  <th>School Name</th>
+                  <th>Grade/Class</th>
+                  <th>School Roll No.</th>
+                  <th>Logistics Transport Route</th>
+                  <th class="staff-admin-only">Action</th>
+                </tr>
+              </thead>
+              <tbody id="school-enrollment-table-body">
+                <!-- Rendered school entries -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <!-- SECTION B: FEES -->
+        <div id="school-fees-section" class="school-sub-section" style="display:none; flex-direction:column; gap:20px">
+          <div style="display:flex; justify-content:flex-end">
+            <button class="btn btn-primary staff-admin-only" onclick="showAddFeeModal()">
+              <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+              <span>Register School Fees</span>
+            </button>
+          </div>
+          <div class="table-container" style="border:1px solid var(--border-color); border-radius:16px">
+            <table class="app-table">
+              <thead>
+                <tr>
+                  <th>Child Name / ID</th>
+                  <th>School Term Fees</th>
+                  <th>Amount Paid</th>
+                  <th>Ledger Balance</th>
+                  <th>Payment Due Date</th>
+                  <th>Audit Status</th>
+                  <th class="staff-admin-only">Action</th>
+                </tr>
+              </thead>
+              <tbody id="school-fees-table-body">
+                <!-- Rendered fees list -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <!-- SECTION C: ACADEMIC REPORT CARDS -->
+        <div id="school-reports-section" class="school-sub-section" style="display:none; flex-direction:column; gap:20px">
+          <div style="display:flex; justify-content:flex-end">
+            <button class="btn btn-primary staff-admin-only" onclick="showAddAcademicReportModal()">
+              <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+              <span>Create Academic Report</span>
+            </button>
+          </div>
+          <div class="alert-banner alert-banner-info">
+            <svg viewBox="0 0 24 24"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <div>
+              <h4 style="font-size:0.9rem">Transparency Compliance Mode Enabled</h4>
+              <p style="font-size:0.75rem">Child real names are dynamically anonymized to unique ID hashes for donor reviews.</p>
+            </div>
+          </div>
+          <div id="school-reports-list-container" class="metrics-grid">
+            <!-- Academic reports list rendered via JS -->
+          </div>
+        </div>
+      </section>
+      
+      <!-- ================= 4. MEDICAL CLINIC PANEL ================= -->
+      <section id="medical-panel" class="tab-panel">
+        <div class="sub-tabs" id="medical-sub-tabs">
+          <button class="sub-tab-btn active" data-subtab="profiles">Health Profile Records</button>
+          <button class="sub-tab-btn" data-subtab="logs">Clinic Checkup Logs</button>
+        </div>
+        
+        <!-- SECTION A: HEALTH PROFILES -->
+        <div id="medical-profiles-section" class="medical-sub-section" style="display:flex; flex-direction:column; gap:20px">
+          <div style="display:flex; justify-content:flex-end">
+            <button class="btn btn-primary staff-admin-only" onclick="showAddMedicalProfileModal()">
+              <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+              <span>Add Health Profile</span>
+            </button>
+          </div>
+          <div class="table-container" style="border:1px solid var(--border-color); border-radius:16px">
+            <table class="app-table" data-print-title="Medical Health Profiles">
+              <thead>
+                <tr>
+                  <th>Child Name / ID</th>
+                  <th>Blood Type</th>
+                  <th>Allergies</th>
+                  <th>Chronic Conditions</th>
+                  <th>Vaccinations</th>
+                  <th class="staff-admin-only">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="medical-profiles-table-body">
+                <!-- Rendered via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <!-- SECTION B: CLINIC VISIT LOGS -->
+        <div id="medical-logs-section" class="medical-sub-section" style="display:none; flex-direction:column; gap:20px">
+          <div style="display:flex; justify-content:flex-end">
+            <button class="btn btn-primary staff-admin-only" onclick="showAddMedicalVisitModal()">
+              <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+              <span>Log Clinic Visit</span>
+            </button>
+          </div>
+          <div class="table-container" style="border:1px solid var(--border-color); border-radius:16px">
+            <table class="app-table" data-print-title="Clinic Visit Logs">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Child Name / ID</th>
+                  <th>Doctor</th>
+                  <th>Diagnosis</th>
+                  <th>Prescription</th>
+                  <th class="staff-admin-only">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="medical-logs-table-body">
+                <!-- Rendered via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      
+      <!-- ================= 5. FINANCES PANEL ================= -->
+      <section id="finances-panel" class="tab-panel">
+        <div class="sub-tabs" id="finance-sub-tabs">
+          <button class="sub-tab-btn active" data-subtab="ledger">General Transaction Ledger</button>
+          <button class="sub-tab-btn" data-subtab="reports">Budget Audit Reports</button>
+        </div>
+        
+        <!-- SECTION A: LEDGER -->
+        <div id="finance-ledger-section" class="finance-sub-section" style="display:flex; flex-direction:column; gap:20px">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px">
+            <div class="filter-actions">
+              <button class="btn btn-primary staff-admin-only" onclick="showAddTransactionModal()">
+                <svg viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+                <span>Record Ledger Flow</span>
+              </button>
+              <button class="btn btn-secondary" onclick="exportFinanceCSV()">
+                <svg viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span>Export Ledger CSV</span>
+              </button>
+            </div>
+          </div>
+          
+          <div class="table-container" style="border:1px solid var(--border-color); border-radius:16px">
+            <table class="app-table">
+              <thead>
+                <tr>
+                  <th>Date Logged</th>
+                  <th>Flow Category</th>
+                  <th>Ledger Target</th>
+                  <th>Amount</th>
+                  <th>Details/Description</th>
+                  <th>Fund Allocation</th>
+                  <th>Audit Controls</th>
+                </tr>
+              </thead>
+              <tbody id="finance-ledger-table-body">
+                <!-- Rendered dynamic ledger lines -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <!-- SECTION B: BUDGET VS ACTUALS -->
+        <div id="finance-reports-section" class="finance-sub-section" style="display:none; flex-direction:column; gap:20px">
+          <div class="top-bar" style="padding-bottom:8px">
+            <div class="page-title">
+              <h3>Monthly Budget Allocation Limits</h3>
+              <p style="font-size:0.75rem; color:var(--text-muted)">Auditing real-time logistics expense categories against target spending caps</p>
+            </div>
+          </div>
+          <div id="budget-report-container" style="display:flex; flex-direction:column; gap:16px">
+            <!-- Progress bars dynamic -->
+          </div>
+        </div>
+      </section>
+      
+      <!-- ================= 6. DONOR PUBLIC PAGE PANEL ================= -->
+      <section id="donors-panel" class="tab-panel">
+        <div class="alert-banner alert-banner-info">
+          <svg viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+          <div>
+            <h4 style="font-size:0.9rem">Public Transparency Shield Active</h4>
+            <p style="font-size:0.75rem">No private individual identifiers or ward names are exposed inside public donor views.</p>
+          </div>
+        </div>
+        
+        <!-- Dynamic Metrics -->
+        <div class="metrics-grid">
+          <div class="metric-card" style="background:hsla(280, 85%, 65%, 0.08)">
+            <div class="metric-info">
+              <h3>Total Children Sustained</h3>
+              <div id="donor-metric-total-children" class="metric-value" style="color:var(--accent)">0</div>
+              <div class="metric-subtitle" style="color:var(--accent)">Healthy & Enrolled</div>
+            </div>
+            <div class="metric-icon-wrapper" style="color:var(--accent)">
+              <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            </div>
+          </div>
+          
+          <div class="metric-card">
+            <div class="metric-info">
+              <h3>Warm Meals Cooked</h3>
+              <div id="donor-metric-meals" class="metric-value">0</div>
+              <div class="metric-subtitle">Served This Month</div>
+            </div>
+            <div class="metric-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            </div>
+          </div>
+          
+          <div class="metric-card">
+            <div class="metric-info">
+              <h3>School Attendance</h3>
+              <div id="donor-metric-attendance" class="metric-value">0%</div>
+              <div class="metric-subtitle">Average Daily Rate</div>
+            </div>
+            <div class="metric-icon-wrapper">
+              <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Donations registry list -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:24px">
+          <h2 style="font-size:1.3rem">Public Donor Transparency Feed</h2>
+          <button class="btn btn-primary" onclick="showAddDonationModal()">
+            <svg viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+            <span>Register Donation Impact</span>
+          </button>
+        </div>
+        
+        <div class="table-container" style="border:1px solid var(--border-color); border-radius:16px; margin-top:12px">
+          <table class="app-table">
+            <thead>
+              <tr>
+                <th>Donor Champion</th>
+                <th>Amount Gifted</th>
+                <th>Interval Type</th>
+                <th>Target Allocation</th>
+                <th>Received Date</th>
+                <th>Charity Audit Tax Note</th>
+              </tr>
+            </thead>
+            <tbody id="donor-feed-table-body">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+      
+      <!-- ================= 7. APP SETTINGS PANEL (ADMIN ONLY) ================= -->
+      <section id="settings-panel" class="tab-panel">
+        <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:16px">
+          <h3 style="font-size:1.2rem">Google Sheets REST Engine Config</h3>
+          <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4">
+            Paste your deployed Google Apps Script URL here. All reading, writing, updating, and deleting operations across all 11 database sheets will route through this endpoint.
+          </p>
+          
+          <div class="form-group">
+            <label for="settings-url-input">Deployed Google Apps Script Web App URL</label>
+            <input type="text" id="settings-url-input" class="form-input" placeholder="https://script.google.com/macros/s/AKfycbws6yKCFrSxvkEYQvTWaRYGYlLuEAWCBXkhGKyLBDywYZv21_TczvAGvBh2HnP96Nxy/exec">
+          </div>
+
+          <div class="form-group">
+            <label for="settings-admin-otp-email">Admin OTP Destination Email</label>
+            <input type="email" id="settings-admin-otp-email" class="form-input" placeholder="theesquire2020@gmail.com">
+            <p style="font-size:0.72rem; color:var(--text-muted); margin-top:6px">
+              All Admin OTP codes are sent strictly to this configured address.
+            </p>
+          </div>
+          
+          <div style="display:flex; gap:12px; flex-wrap:wrap">
+            <button id="save-settings-btn" class="btn btn-primary" onclick="saveSettingsUrl()">Save Web App URL</button>
+            <button id="save-admin-otp-btn" class="btn btn-secondary" type="button">Save Admin OTP Email</button>
+            <button id="test-conn-btn" class="btn btn-secondary">Test Connection Mode</button>
+            <button id="auto-setup-btn" class="btn btn-accent" onclick="runAutoSetupSheets()">Run Database Auto-Setup</button>
+          </div>
+        </div>
+
+        <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:16px; margin-top:20px">
+          <h3 style="font-size:1.2rem">Orphanage Print Identity</h3>
+          <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4">
+            These details appear on printed tables and donor/finance receipts.
+          </p>
+
+          <div class="form-grid" style="grid-template-columns: repeat(2, 1fr)">
+            <div class="form-group">
+              <label for="settings-print-logo">Logo Symbol</label>
+              <input type="text" id="settings-print-logo" class="form-input" maxlength="4" placeholder="❤">
+            </div>
+            <div class="form-group">
+              <label for="settings-print-name">Orphanage Name</label>
+              <input type="text" id="settings-print-name" class="form-input" placeholder="OrphanCare Children Home">
+            </div>
+            <div class="form-group form-group-full">
+              <label for="settings-print-address">Orphanage Address</label>
+              <input type="text" id="settings-print-address" class="form-input" placeholder="Kasarani, Nairobi, Kenya">
+            </div>
+            <div class="form-group">
+              <label for="settings-print-phone">Phone Number</label>
+              <input type="text" id="settings-print-phone" class="form-input" placeholder="+254 700 123 456">
+            </div>
+            <div class="form-group">
+              <label for="settings-print-email">Email Address</label>
+              <input type="email" id="settings-print-email" class="form-input" placeholder="admin@orphancare.local">
+            </div>
+          </div>
+
+          <button id="save-print-profile-btn" class="btn btn-primary" type="button">Save Print Identity</button>
+        </div>
+        
+        <!-- Currency Settings -->
+        <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:16px; margin-top:20px">
+          <h3 style="font-size:1.2rem">Currency Configuration (KES Default)</h3>
+          <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4">
+            Set the display currency and exchange rates. Base currency is KES (Kenyan Shillings). All amounts are stored in KES and converted dynamically.
+          </p>
+          
+          <div class="form-group">
+            <label for="settings-display-currency">Display Currency</label>
+            <select id="settings-display-currency" class="form-select">
+              <option value="KES">KES - Kenyan Shilling</option>
+              <option value="USD">USD - US Dollar</option>
+              <option value="EUR">EUR - Euro</option>
+              <option value="GBP">GBP - British Pound</option>
+              <option value="UGX">UGX - Ugandan Shilling</option>
+              <option value="TZS">TZS - Tanzanian Shilling</option>
+            </select>
+          </div>
+          
+          <div class="form-grid" style="grid-template-columns: repeat(2, 1fr)">
+            <div class="form-group">
+              <label for="rate-usd">USD Rate (1 KES = ? USD)</label>
+              <input type="number" id="rate-usd" class="form-input" step="0.0001" value="0.0078">
+            </div>
+            <div class="form-group">
+              <label for="rate-eur">EUR Rate (1 KES = ? EUR)</label>
+              <input type="number" id="rate-eur" class="form-input" step="0.0001" value="0.0072">
+            </div>
+            <div class="form-group">
+              <label for="rate-gbp">GBP Rate (1 KES = ? GBP)</label>
+              <input type="number" id="rate-gbp" class="form-input" step="0.0001" value="0.0062">
+            </div>
+            <div class="form-group">
+              <label for="rate-ugx">UGX Rate (1 KES = ? UGX)</label>
+              <input type="number" id="rate-ugx" class="form-input" step="0.1" value="29.5">
+            </div>
+            <div class="form-group">
+              <label for="rate-tzs">TZS Rate (1 KES = ? TZS)</label>
+              <input type="number" id="rate-tzs" class="form-input" step="0.1" value="19.8">
+            </div>
+          </div>
+          
+          <button id="save-currency-btn" class="btn btn-primary" onclick="saveCurrencySettings()">Save Currency Settings</button>
+        </div>
+        
+        <!-- Primary & Secondary Color Pickers -->
+        <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:16px; margin-top:20px">
+          <h3 style="font-size:1.2rem">Visual Theme Customization</h3>
+          <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4">
+            Customize the primary and secondary branding colors of the application. These preferences are stored locally in the viewport settings.
+          </p>
+          
+          <div class="form-grid" style="grid-template-columns: repeat(2, 1fr)">
+            <div class="form-group">
+              <label for="settings-primary-color">Primary Theme Color</label>
+              <div style="display:flex; gap:10px; align-items:center">
+                <input type="color" id="settings-primary-color" style="width:50px; height:38px; padding:0; border-radius:6px; border:1px solid var(--border-color); background:none; cursor:pointer" value="#0d9488">
+                <span id="settings-primary-hex" style="font-family:monospace; font-size:0.85rem">#0d9488</span>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="settings-secondary-color">Secondary Theme Color</label>
+              <div style="display:flex; gap:10px; align-items:center">
+                <input type="color" id="settings-secondary-color" style="width:50px; height:38px; padding:0; border-radius:6px; border:1px solid var(--border-color); background:none; cursor:pointer" value="#2563eb">
+                <span id="settings-secondary-hex" style="font-family:monospace; font-size:0.85rem">#2563eb</span>
+              </div>
+            </div>
+          </div>
+          
+          <div style="display:flex; gap:12px; margin-top:4px">
+            <button class="btn btn-primary" onclick="saveColorSettings()">Save Theme Colors</button>
+            <button class="btn btn-secondary" onclick="resetColorSettings()">Reset Defaults</button>
+          </div>
+        </div>
+        
+        <!-- Apps script instructions block -->
+        <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:12px; margin-top:20px">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:8px">
+            <h4 style="font-size:1.05rem">How to deploy Google Sheets backend</h4>
+            <button class="btn btn-secondary" onclick="showAppsScriptHelpModal()">View Complete Setup Manual</button>
+          </div>
+          <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4">
+            1. Create a new Google Spreadsheet.<br>
+            2. Open <strong>Extensions</strong> &rarr; <strong>Apps Script</strong>.<br>
+            3. Copy the script using the button in the manual, paste it in the script editor.<br>
+            4. Click <strong>Deploy</strong> &rarr; <strong>New Deployment</strong>. Select <strong>Web App</strong>.<br>
+            5. Set <i>Execute as:</i> <strong>Me</strong>, <i>Who has access:</i> <strong>Anyone</strong>.<br>
+            6. Click Deploy, authorize permissions, copy the Web App URL and paste it in the settings input above.
+          </p>
+        </div>
+      </section>
+      
+    </main>
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- ==================== DIALOG MODALS ==================== -->
+  <!-- ======================================================= -->
+  
+  <!-- 1. ADD / EDIT CHILD MODAL -->
+  <div id="child-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="child-modal-title">Enroll New Child</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="child-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="child-form-id">
+          
+          <div class="form-group">
+            <label for="child-form-name">Full Legal Name</label>
+            <input type="text" id="child-form-name" class="form-input" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="child-form-age">Age (Years)</label>
+            <input type="number" id="child-form-age" class="form-input" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="child-form-gender">Gender Type</label>
+            <select id="child-form-gender" class="form-select">
+              <option value="Boy">Boy</option>
+              <option value="Girl">Girl</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="child-form-entry">Date of Entry</label>
+            <input type="date" id="child-form-entry" class="form-input">
+          </div>
+          
+          <div class="form-group">
+            <label for="child-form-guardian">Emergency Guardian / Agency</label>
+            <input type="text" id="child-form-guardian" class="form-input" placeholder="e.g. Red Cross Services">
+          </div>
+          
+          <div class="form-group">
+            <label for="child-form-phone">Guardian Phone Number</label>
+            <input type="tel" id="child-form-phone" class="form-input" placeholder="e.g. +254...">
+          </div>
+          
+          <div class="form-group">
+            <label for="child-form-room">Assigned Dormitory Room</label>
+            <select id="child-form-room" class="form-select">
+              <!-- Dynamically populated rooms -->
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="child-form-bed">Assigned Bed Number</label>
+            <input type="number" id="child-form-bed" class="form-input" value="1" min="1">
+          </div>
+
+          <div class="form-group form-group-full">
+            <label for="child-form-photo">Child Portrait Photo</label>
+            <input type="file" id="child-form-photo" class="form-input" accept="image/*">
+            <div class="portrait-preview-wrap">
+              <img id="child-form-photo-preview" alt="Child portrait preview" style="display:none">
+            </div>
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="child-form-status">Enrolled System Status</label>
+            <select id="child-form-status" class="form-select">
+              <option value="Active">Active (Living in Institution)</option>
+              <option value="Discharged">Discharged (Reunited with Family/Adopted)</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard changes</button>
+        <button class="btn btn-primary" onclick="saveChildSubmit()">Commit Record</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1.5 ADD / EDIT ROOM MODAL -->
+  <div id="room-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="room-modal-title">Add Dormitory Room</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="room-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="room-form-roomNumber">
+          
+          <div class="form-group">
+            <label for="room-form-number">Room Number</label>
+            <input type="text" id="room-form-number" class="form-input" placeholder="e.g. 101" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="room-form-capacity">Bed Capacity</label>
+            <input type="number" id="room-form-capacity" class="form-input" placeholder="e.g. 8" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="room-form-gender">Gender Type</label>
+            <select id="room-form-gender" class="form-select">
+              <option value="Boys">Boys Only</option>
+              <option value="Girls">Girls Only</option>
+              <option value="Mixed">Mixed Gender</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="room-form-floor">Floor Level</label>
+            <select id="room-form-floor" class="form-select">
+              <option value="Ground">Ground Floor</option>
+              <option value="1">1st Floor</option>
+              <option value="2">2nd Floor</option>
+              <option value="3">3rd Floor</option>
+            </select>
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="room-form-supervisor">Room Supervisor</label>
+            <input type="text" id="room-form-supervisor" class="form-input" placeholder="Staff name responsible">
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="room-form-notes">Notes</label>
+            <textarea id="room-form-notes" class="form-input" rows="3" placeholder="Any special notes about this room"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard</button>
+        <button class="btn btn-primary" onclick="saveRoomSubmit()">Save Room</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ADD / EDIT MEAL PLAN MODAL -->
+  <div id="meal-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="meal-modal-title">Plan Daily Meal Menu</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="meal-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="meal-form-id">
+          
+          <div class="form-group">
+            <label for="meal-form-date">Calendar Date</label>
+            <input type="date" id="meal-form-date" class="form-input">
+          </div>
+          
+          <div class="form-group">
+            <label for="meal-form-type">Meal Category</label>
+            <select id="meal-form-type" class="form-select">
+              <option value="Breakfast">Breakfast Menu</option>
+              <option value="Lunch">Lunch Menu</option>
+              <option value="Dinner">Dinner Menu</option>
+              <option value="Snack">Healthy Snack Logs</option>
+            </select>
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="meal-form-items">Planned Menu Ingredients (Separate with comma)</label>
+            <input type="text" id="meal-form-items" class="form-input" placeholder="e.g. Whole milk oatmeal porridge, egg omelette" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="meal-form-calories">Energy Intake per child (Kcal)</label>
+            <input type="number" id="meal-form-calories" class="form-input" value="500">
+          </div>
+          
+          <div class="form-group">
+            <label for="meal-form-proteins">Proteins Intake per child (grams)</label>
+            <input type="number" id="meal-form-proteins" class="form-input" value="20">
+          </div>
+          
+          <div class="form-group">
+            <label for="meal-form-carbs">Carbs Intake per child (grams)</label>
+            <input type="number" id="meal-form-carbs" class="form-input" value="65">
+          </div>
+          
+          <div class="form-group">
+            <label for="meal-form-fats">Fats Intake per child (grams)</label>
+            <input type="number" id="meal-form-fats" class="form-input" value="12">
+          </div>
+          
+          <div class="form-group">
+            <label for="meal-form-cost">Audited Cost per child</label>
+            <input type="number" id="meal-form-cost" class="form-input" step="0.01" value="1.50">
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="meal-form-notes">Caretaker Kitchen Notes</label>
+            <textarea id="meal-form-notes" class="form-textarea" placeholder="Note down milk allergy replacements, kitchen wastage logs..."></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard</button>
+        <button class="btn btn-primary" onclick="saveMealSubmit()">Schedule Meal Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. LOG INVENTORY MODAL -->
+  <div id="inventory-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Dispense Pantry / Restock Log</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="inventory-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="inventory-form-id">
+          
+          <div class="form-group">
+            <label for="inventory-form-name">Item Name</label>
+            <input type="text" id="inventory-form-name" class="form-input" disabled>
+          </div>
+          
+          <div class="form-group">
+            <label for="inventory-form-expiry">Expiry Date</label>
+            <input type="date" id="inventory-form-expiry" class="form-input">
+          </div>
+          
+          <div class="form-group">
+            <label for="inventory-form-stock-in">Accumulated Stock In (Restocked)</label>
+            <input type="number" id="inventory-form-stock-in" class="form-input">
+          </div>
+          
+          <div class="form-group">
+            <label for="inventory-form-stock-out">Dispensed Stock Out (Cooked/Used)</label>
+            <input type="number" id="inventory-form-stock-out" class="form-input">
+          </div>
+          
+          <div class="form-group">
+            <label for="inventory-form-wastage">Tracked Kitchen Wastage</label>
+            <input type="number" id="inventory-form-wastage" class="form-input" step="0.1">
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="inventory-form-notes">Pantry Auditing Notes</label>
+            <textarea id="inventory-form-notes" class="form-textarea"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveInventorySubmit()">Commit Inventory Levels</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. SCHOOL ENROLLMENT MODAL -->
+  <div id="enrollment-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Academic School Enrollment</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="enrollment-form" onsubmit="event.preventDefault();" class="form-grid">
+          
+          <div class="form-group">
+            <label for="enroll-form-child">Select Child</label>
+            <select id="enroll-form-child" class="form-select">
+              <!-- Rendered children -->
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="enroll-form-school">Academy Name</label>
+            <input type="text" id="enroll-form-school" class="form-input" placeholder="e.g. Highlands Academy">
+          </div>
+          
+          <div class="form-group">
+            <label for="enroll-form-class">Grade / Classroom Unit</label>
+            <input type="text" id="enroll-form-class" class="form-input" placeholder="e.g. Grade 4">
+          </div>
+          
+          <div class="form-group">
+            <label for="enroll-form-roll">School Roll Registration Number</label>
+            <input type="text" id="enroll-form-roll" class="form-input" placeholder="e.g. H-8419">
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="enroll-form-transport">Dormitory Transport Route</label>
+            <select id="enroll-form-transport" class="form-select">
+              <option value="School Bus">School Bus Logistics</option>
+              <option value="Walking">Walking Escort Groups</option>
+              <option value="Private Caretaker">Private Caretaker Dropoff</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEnrollmentSubmit()">Record Enrollment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. SCHOOL FEES MODAL -->
+  <div id="fees-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Tuition Fees Ledger Log</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="fees-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="fee-form-id">
+          <input type="hidden" id="fee-form-child-id">
+          
+          <div class="form-group">
+            <label for="fee-form-child-select">Select Child Ward</label>
+            <select id="fee-form-child-select" class="form-select">
+              <option value="">-- Select Child --</option>
+              <!-- Rendered children -->
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="fee-form-date">Payment Due Date</label>
+            <input type="date" id="fee-form-date" class="form-input">
+          </div>
+          
+          <div class="form-group">
+            <label for="fee-form-due">Total Fees Term Charge</label>
+            <input type="number" id="fee-form-due" class="form-input">
+          </div>
+          
+          <div class="form-group">
+            <label for="fee-form-paid">Total Payments Rendered</label>
+            <input type="number" id="fee-form-paid" class="form-input">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard</button>
+        <button class="btn btn-primary" onclick="saveFeeSubmit()">Commit Fees Payment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5.5 ACADEMIC REPORT MODAL -->
+  <div id="academic-report-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Create Academic Report Card</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="academic-report-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="academic-report-form-id">
+          
+          <div class="form-group">
+            <label for="academic-report-child-select">Select Child</label>
+            <select id="academic-report-child-select" class="form-select">
+              <!-- Rendered children -->
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="academic-report-term">Academic Term</label>
+            <select id="academic-report-term" class="form-select">
+              <option value="Term 1">Term 1</option>
+              <option value="Term 2">Term 2</option>
+              <option value="Term 3">Term 3</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="academic-report-subject">Subject</label>
+            <input type="text" id="academic-report-subject" class="form-input" placeholder="e.g. Mathematics">
+          </div>
+          
+          <div class="form-group">
+            <label for="academic-report-grade">Grade</label>
+            <select id="academic-report-grade" class="form-select">
+              <option value="A">A - Excellent</option>
+              <option value="B">B - Good</option>
+              <option value="C">C - Satisfactory</option>
+              <option value="D">D - Needs Improvement</option>
+              <option value="E">E - Fail</option>
+            </select>
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="academic-report-comments">Teacher Comments</label>
+            <textarea id="academic-report-comments" class="form-textarea" placeholder="Performance notes and recommendations"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard</button>
+        <button class="btn btn-primary" onclick="saveAcademicReportSubmit()">Create Report</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. MEDICAL RECORD PROFILE MODAL -->
+  <div id="medical-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Update Child Health File</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="medical-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="med-form-mode" value="edit">
+          <input type="hidden" id="med-form-child-id">
+          
+          <div class="form-group form-group-full">
+            <label for="med-form-child-select">Select Child</label>
+            <select id="med-form-child-select" class="form-select"></select>
+          </div>
+          
+          <div class="form-group">
+            <label>Enrolled Child</label>
+            <div id="med-form-child-label" style="font-weight:700; padding:10px 0">---</div>
+          </div>
+          
+          <div class="form-group">
+            <label for="med-form-blood">Blood Type Group</label>
+            <select id="med-form-blood" class="form-select">
+              <option value="A+">A+</option>
+              <option value="A-">A-</option>
+              <option value="B+">B+</option>
+              <option value="B-">B-</option>
+              <option value="O+">O+</option>
+              <option value="O-">O-</option>
+              <option value="AB+">AB+</option>
+              <option value="AB-">AB-</option>
+            </select>
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="med-form-allergies">Severe Medical Allergies (Note down peanuts, dairy...)</label>
+            <input type="text" id="med-form-allergies" class="form-input" required>
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="med-form-chronic">Chronic Medical Conditions / Routine Treatments</label>
+            <input type="text" id="med-form-chronic" class="form-input" required>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard</button>
+        <button class="btn btn-primary" onclick="saveMedicalProfileSubmit()">Commit Health Record</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6.5 MEDICAL VISIT LOG MODAL -->
+  <div id="medical-visit-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Log Clinic Visit</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="medical-visit-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="med-visit-index" value="-1">
+
+          <div class="form-group">
+            <label for="med-visit-child-id">Select Child</label>
+            <select id="med-visit-child-id" class="form-select"></select>
+          </div>
+
+          <div class="form-group">
+            <label for="med-visit-date">Visit Date</label>
+            <input type="date" id="med-visit-date" class="form-input">
+          </div>
+
+          <div class="form-group">
+            <label for="med-visit-doctor">Doctor Name</label>
+            <input type="text" id="med-visit-doctor" class="form-input" placeholder="e.g. Dr. Mercy Atieno">
+          </div>
+
+          <div class="form-group form-group-full">
+            <label for="med-visit-diagnosis">Diagnosis / Checkup Notes</label>
+            <input type="text" id="med-visit-diagnosis" class="form-input" placeholder="Routine medical review">
+          </div>
+
+          <div class="form-group form-group-full">
+            <label for="med-visit-prescription">Prescription / Treatment</label>
+            <input type="text" id="med-visit-prescription" class="form-input" placeholder="Medication and dosage">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard</button>
+        <button class="btn btn-primary" onclick="saveMedicalVisitSubmit()">Save Visit Log</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. FINANCE RECORD TRANSACTION MODAL -->
+  <div id="finance-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Record Treasury Ledger Line</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="finance-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="trans-form-id">
+          
+          <div class="form-group">
+            <label for="trans-form-date">Ledger Date</label>
+            <input type="date" id="trans-form-date" class="form-input">
+          </div>
+          
+          <div class="form-group">
+            <label for="trans-form-type">Ledger Flow Direction</label>
+            <select id="trans-form-type" class="form-select">
+              <option value="Expense">Expense (Operational Spending Out)</option>
+              <option value="Income">Income (Grants/Donations In)</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="trans-form-category">Transaction Category</label>
+            <select id="trans-form-category" class="form-select">
+              <option value="Food">Food & Kitchen Logistics</option>
+              <option value="School Fees">School Fees & Academic Sets</option>
+              <option value="Medical">Medical Checkups & Meds</option>
+              <option value="Utilities">Utilities & Rents</option>
+              <option value="Staff Salaries">Staff Caretaker Wages</option>
+              <option value="Donations">External Grants/Donations</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="trans-form-amount">Transaction Amount</label>
+            <input type="number" id="trans-form-amount" class="form-input" step="0.01" required>
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="trans-form-desc">Audit Narrative / Description</label>
+            <input type="text" id="trans-form-desc" class="form-input" placeholder="e.g. Bought term 2 primary class book bundles" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="trans-form-allocated">Allocated Specific Program Fund</label>
+            <select id="trans-form-allocated" class="form-select">
+              <option value="General">General Caretaker Operations</option>
+              <option value="Food">Direct Nutritional Kitchen Fund</option>
+              <option value="School Fees">Academic Tuition clearance fund</option>
+              <option value="Medical">Clinic Dispensary & Medical</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="trans-form-receipt">Digital Receipt Reference URL (Optional)</label>
+            <input type="text" id="trans-form-receipt" class="form-input" placeholder="Paste link to scanned receipt copy">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard</button>
+        <button class="btn btn-primary" onclick="saveTransactionSubmit()">Record Transaction</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. REGISTER DONATION IMPACT MODAL -->
+  <div id="donations-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Record Donor Humanitarian Contribution</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="donations-form" onsubmit="event.preventDefault();" class="form-grid">
+          <input type="hidden" id="don-form-id">
+          
+          <div class="form-group">
+            <label for="don-form-name">Donor Champion Full Name</label>
+            <input type="text" id="don-form-name" class="form-input" placeholder="e.g. Clara Green Foundation" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="don-form-email">Donor Email Address</label>
+            <input type="email" id="don-form-email" class="form-input" placeholder="e.g. grants@claragreen.org" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="don-form-amount">Charitable Grant Amount</label>
+            <input type="number" id="don-form-amount" class="form-input" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="don-form-type">Donation Frequency Type</label>
+            <select id="don-form-type" class="form-select">
+              <option value="One-time">One-time Charitable Grant</option>
+              <option value="Recurring">Recurring Monthly Sponsor</option>
+            </select>
+          </div>
+          
+          <div class="form-group form-group-full">
+            <label for="don-form-allocated">Target Humanitarian Allocation</label>
+            <select id="don-form-allocated" class="form-select">
+              <option value="Food">Nutritional Kitchen Fund (Directly funds warm meals)</option>
+              <option value="School Fees">School Tuition fund (Clears pending fees balances)</option>
+              <option value="Medical">Pediatric clinic support (Vaccines and medications)</option>
+              <option value="General">General care (Caretaker logistics and utilities)</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Discard</button>
+        <button class="btn btn-primary" onclick="saveDonationSubmit()">Commit Funding</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. PRINT / RECEIPT AUDIT VIEW MODAL -->
+  <div id="receipt-view-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width:550px">
+      <div class="modal-header">
+        <h3>Secured Auditing Bill View</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div id="receipt-view-modal-body" class="modal-body" style="background:#f4f6f9">
+        <!-- Dynically rendered printable receipt goes here -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Close Invoice</button>
+        <button class="btn btn-primary" onclick="triggerReceiptPrint()">
+          <svg viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2m-10 0v5h12v-5M6 14h.01"/></svg>
+          <span>Print Audit Bill</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 10. GOOGLE APPS SCRIPT HELP MANUAL MODAL -->
+  <div id="gas-help-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 800px">
+      <div class="modal-header">
+        <h3>Google Apps Script Complete Deploy Guide</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="alert-banner alert-banner-info">
+          <svg viewBox="0 0 24 24"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <div>
+            <h4 style="font-size:0.9rem">Highly Secure Database Integration</h4>
+            <p style="font-size:0.75rem">This script automates all CORS header routing, allowing instant REST interaction with 11 connected sheets in Google Drive.</p>
+          </div>
+        </div>
+        
+        <p style="font-size:0.85rem; line-height:1.5; margin: 12px 0">
+          Click the copy button below, navigate to your Google Sheets Apps Script panel, paste this exact block, click Save, deploy as a Web App (access to "Anyone"), and paste your web app URL inside Settings!
+        </p>
+        
+        <div class="code-block-container">
+          <div class="copy-badge" onclick="copyAppsScriptCode()">Copy Source Code</div>
+          <pre><code id="gas-script-textarea">/**
+ * ORPHANAGE MANAGEMENT SYSTEM - BACKEND DATABASE ENGINE (Google Apps Script)
+ * Deployed as a Web App: Execute as "Me", Access: "Anyone"
+ * 
+ * This script serves as a robust JSON REST API for the frontend web application.
+ * It manages 11 sheets within a single Google Spreadsheet, auto-creating them
+ * with headers if they do not exist.
+ */
+
+// Define sheet names and their respective headers for auto-creation
+const SHEET_SCHEMAS = {
+  "Children": ["id", "name", "age", "gender", "entryDate", "guardianName", "guardianPhone", "roomNumber", "bedNumber", "status"],
+  "Rooms": ["roomNumber", "capacity", "occupancy", "genderType", "notes"],
+  "Food_Inventory": ["id", "itemName", "category", "stockIn", "stockOut", "currentStock", "unit", "expiryDate", "wastage", "notes"],
+  "Daily_Meals": ["id", "date", "mealType", "plannedItems", "calories", "proteins", "carbs", "fats", "costPerChild", "notes"],
+  "School_Enrollment": ["childId", "schoolName", "gradeClass", "rollNumber", "transportStatus"],
+  "School_Fees": ["id", "childId", "amountDue", "amountPaid", "balance", "dueDate", "receiptUrl", "status"],
+  "Academic_Reports": ["id", "childId", "term", "gradesJson", "teacherComments", "dateCreated"],
+  "Medical_Records": ["childId", "bloodType", "allergies", "chronicConditions", "vaccinationsJson", "doctorVisitsJson", "dispensedMedsJson"],
+  "Finances": ["id", "date", "type", "category", "amount", "description", "receiptUrl", "allocatedTo"],
+  "Donations": ["id", "donorName", "donorEmail", "date", "amount", "donationType", "allocatedTo", "thanked", "receiptUrl"],
+  "App_Settings": ["key", "value"]
+};
+
+function doGet(e) {
+  const action = e.parameter.action;
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (action === "testConnection") {
+      return responseJSON({ success: true, message: "Connected to Google Sheets successfully!", spreadsheetName: ss.getName() });
+    }
+    if (action === "setup") {
+      setupSheets(ss);
+      return responseJSON({ success: true, message: "All 11 sheets initialized successfully with correct headers!" });
+    }
+    if (action === "readAll") {
+      setupSheets(ss);
+      const data = {};
+      for (let sheetName in SHEET_SCHEMAS) {
+        const sheet = ss.getSheetByName(sheetName);
+        data[sheetName.toLowerCase()] = getSheetData(sheet);
+      }
+      return responseJSON({ success: true, data: data });
+    }
+    return responseJSON({ success: false, error: "Invalid GET action." });
+  } catch (err) {
+    return responseJSON({ success: false, error: err.toString() });
+  }
+}
+
+function doPost(e) {
+  let postData;
+  try {
+    postData = JSON.parse(e.postData.contents);
+  } catch (err) {
+    return responseJSON({ success: false, error: "Invalid JSON body: " + err.toString() });
+  }
+  
+  const action = postData.action;
+  const sheetName = postData.sheetName;
+  
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    setupSheets(ss);
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return responseJSON({ success: false, error: "Sheet not found" });
+    
+    if (action === "saveRecord") {
+      const record = postData.record;
+      const keyColumn = postData.keyColumn || "id";
+      const keyValue = record[keyColumn];
+      
+      const headers = SHEET_SCHEMAS[sheetName];
+      const data = sheet.getDataRange().getValues();
+      const keyIndex = headers.indexOf(keyColumn);
+      
+      let rowIndex = -1;
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][keyIndex].toString() === keyValue.toString()) {
+          rowIndex = i + 1;
+          break;
+        }
+      }
+      
+      const rowValues = headers.map(header => {
+        let val = record[header];
+        if (val === undefined || val === null) return "";
+        if (typeof val === "object") return JSON.stringify(val);
+        return val;
+      });
+      
+      if (rowIndex !== -1) {
+        sheet.getRange(rowIndex, 1, 1, headers.length).setValues([rowValues]);
+        return responseJSON({ success: true, message: "Record updated" });
+      } else {
+        sheet.appendRow(rowValues);
+        return responseJSON({ success: true, message: "Record appended" });
+      }
+    }
+    
+    if (action === "deleteRecord") {
+      const keyColumn = postData.keyColumn || "id";
+      const keyValue = postData.keyValue;
+      const headers = SHEET_SCHEMAS[sheetName];
+      const data = sheet.getDataRange().getValues();
+      const keyIndex = headers.indexOf(keyColumn);
+      
+      let rowIndex = -1;
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][keyIndex].toString() === keyValue.toString()) {
+          rowIndex = i + 1;
+          break;
+        }
+      }
+      
+      if (rowIndex !== -1) {
+        sheet.deleteRow(rowIndex);
+        return responseJSON({ success: true, message: "Record deleted" });
+      }
+      return responseJSON({ success: false, error: "Record not found" });
+    }
+    
+    return responseJSON({ success: false, error: "Invalid action" });
+  } catch (err) {
+    return responseJSON({ success: false, error: err.toString() });
+  }
+}
+
+function setupSheets(ss) {
+  for (let sheetName in SHEET_SCHEMAS) {
+    let sheet = ss.getSheetByName(sheetName);
+    const headers = SHEET_SCHEMAS[sheetName];
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(headers);
+      const range = sheet.getRange(1, 1, 1, headers.length);
+      range.setFontWeight("bold").setBackground("#2c3e50").setFontColor("#ffffff");
+      sheet.setFrozenRows(1);
+    }
+  }
+}
+
+function getSheetData(sheet) {
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  const headers = data[0];
+  const rows = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = {};
+    let isEmpty = true;
+    for (let j = 0; j < headers.length; j++) {
+      let val = data[i][j];
+      if (typeof val === "string" && (val.startsWith("[") || val.startsWith("{"))) {
+        try { val = JSON.parse(val); } catch(e) {}
+      }
+      row[headers[j]] = val;
+      if (val !== "") isEmpty = false;
+    }
+    if (!isEmpty) rows.push(row);
+  }
+  return rows;
+}
+
+function responseJSON(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}</code></pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-close-modal">Close Manual</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== LOADING HUD OVERLAY ==================== -->
+  <div id="loading-hud">
+    <div class="hud-spinner"></div>
+    <div id="loading-hud-text" class="hud-text">Processing Request...</div>
+  </div>
+
+  <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
+  <div id="toast-container"></div>
+
+  <!-- Client JavaScript controllers -->
+  <script src="app.js"></script>
+  
+  <!-- Inline custom logic scripts (e.g. search bars, active filters) -->
+  <script>
+    // Local fast client-side table row search filters
+    function filterChildrenTable() {
+      const input = document.getElementById('children-search-bar');
+      const filter = input.value.toLowerCase();
+      const tbody = document.getElementById('home-children-table-body');
+      const trs = tbody.getElementsByTagName('tr');
+      
+      for (let i = 0; i < trs.length; i++) {
+        const rowText = trs[i].textContent || trs[i].innerText;
+        if (rowText.toLowerCase().indexOf(filter) > -1) {
+          trs[i].style.display = "";
+        } else {
+          trs[i].style.display = "none";
+        }
+      }
+    }
+  </script>
+</body>
+</html>
