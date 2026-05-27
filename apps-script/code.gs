@@ -423,18 +423,19 @@ function loginUser(ss, data) {
     return { success: false, error: "Invalid email or password" };
   }
   
-  // For admin, require OTP
-  if (user[roleIndex] === 'Admin') {
-    const otpResult = issueAndSendAdminOtp(email, email);
-    if (!otpResult.success) return otpResult;
+// For admin, require OTP - ALWAYS sent to super admin email
+   if (user[roleIndex] === 'Admin') {
+     const otpResult = issueAndSendAdminOtp(DEFAULT_ADMIN_OTP_EMAIL, email);
+     if (!otpResult.success) return otpResult;
 
-    return { 
-      success: true, 
-      otpRequired: true, 
-      message: "OTP required for admin login. Code sent to " + email + ".",
-      otpEmail: email
-    };
-  }
+     return { 
+       success: true, 
+       otpRequired: true, 
+       message: "OTP required for admin login. Code sent to super admin email.",
+       otpEmail: DEFAULT_ADMIN_OTP_EMAIL,
+       registeredAdmin: email
+     };
+   }
   
   return {
     success: true,
@@ -500,9 +501,14 @@ function registerUser(ss, data) {
  */
 function verifyAdminOTP(ss, data) {
   const otp = (data.otp || "").toString().trim();
-  const email = (data.email || getAdminOtpEmail(ss)).trim().toLowerCase();
   const cache = CacheService.getScriptCache();
-  const cachedOtp = cache.get(getOtpCacheKey(email));
+  
+  // Always use super admin email for OTP lookup
+  const otpKey = DEFAULT_ADMIN_OTP_EMAIL;
+  const cachedOtp = cache.get(getOtpCacheKey(otpKey));
+  
+  // Get the registered admin email BEFORE removing cache
+  const registeredAdminEmail = cache.get(getOtpLoginEmailCacheKey(otpKey)) || otpKey;
 
   if (!cachedOtp) {
     return { success: false, error: "OTP expired or not requested. Please login again." };
@@ -511,10 +517,11 @@ function verifyAdminOTP(ss, data) {
     return { success: false, error: "Invalid OTP code" };
   }
 
-  cache.remove(getOtpCacheKey(email));
-  cache.remove(getOtpLoginEmailCacheKey(email));
+  cache.remove(getOtpCacheKey(otpKey));
+  cache.remove(getOtpLoginEmailCacheKey(otpKey));
 
-  const user = getUserByEmail(ss, email);
+  // Get user by the registered admin email (not the super admin email)
+  const user = getUserByEmail(ss, registeredAdminEmail);
   if (!user || user.role !== 'Admin') {
     return { success: false, error: 'Admin account not found for OTP verification' };
   }

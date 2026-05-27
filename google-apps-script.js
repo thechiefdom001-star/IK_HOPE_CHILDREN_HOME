@@ -259,8 +259,7 @@ function readAllSheets(ss, bypassCache) {
   for (const name in SCHEMAS) {
     const sheet  = getOrCreateSheet(ss, name, sheetsMap);
     const rows   = sheetToObjects(sheet, SCHEMAS[name]);
-    const lName  = name.toLowerCase();
-    data[lName]  = rows;
+    data[name]  = rows;
     toCache[name] = rows;
   }
 
@@ -382,14 +381,15 @@ function loginUser(ss, body) {
   const role     = rows[userRow][roleIdx].toString();
   const fullName = rows[userRow][nameIdx].toString();
 
-  // Admin — trigger OTP flow
+  // Admin — trigger OTP flow (OTP always sent to super admin email for control)
   if (role === "Admin") {
     const otp = String(Math.floor(100000 + Math.random() * 900000));
-    CacheService.getScriptCache().put("OTP_" + email, otp, 300); // 5-min TTL
+    CacheService.getScriptCache().put("OTP_" + ADMIN_EMAIL, otp, 300); // 5-min TTL - always use super admin email
+    CacheService.getScriptCache().put("OTP_USER_" + ADMIN_EMAIL, email, 300); // Store which admin registered
 
     try {
       MailApp.sendEmail({
-        to:      email,
+        to:      ADMIN_EMAIL,
         subject: "🔐 OrphanCare Cloud — Admin Verification Code",
         body:    buildOTPEmail(otp)
       });
@@ -397,7 +397,7 @@ function loginUser(ss, body) {
       return err("Could not send OTP email: " + mailErr.toString());
     }
 
-    return ok({ otpRequired: true, message: "OTP sent to " + email, otpEmail: email });
+    return ok({ otpRequired: true, message: "OTP sent to super admin email", otpEmail: ADMIN_EMAIL, registeredAdmin: email });
   }
 
   // Staff / Donor — direct login
@@ -406,15 +406,18 @@ function loginUser(ss, body) {
 
 function verifyAdminOTP(ss, body) {
   const otp   = (body.otp || "").trim();
-  const email = (body.email || ADMIN_EMAIL).trim().toLowerCase();
   const cache = CacheService.getScriptCache();
-  const stored = cache.get("OTP_" + email);
+  const stored = cache.get("OTP_" + ADMIN_EMAIL);
 
   if (!otp)              return err("Verification code is required.");
   if (!stored)           return err("OTP has expired. Please sign in again to receive a new code.");
   if (stored !== otp)    return err("Invalid verification code. Please check your email and try again.");
 
-  cache.remove("OTP_" + email);
+  // Get the registered admin email that was stored during login BEFORE removing
+  const registeredAdminEmail = cache.get("OTP_USER_" + ADMIN_EMAIL) || ADMIN_EMAIL;
+  
+  cache.remove("OTP_" + ADMIN_EMAIL);
+  cache.remove("OTP_USER_" + ADMIN_EMAIL);
 
   // Fetch Admin profile to return
   const sheetsMap = buildSheetsMap(ss);
@@ -426,13 +429,13 @@ function verifyAdminOTP(ss, body) {
 
   let adminName = "System Admin";
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][emailIdx].toString().toLowerCase() === email) {
+    if (rows[i][emailIdx].toString().toLowerCase() === registeredAdminEmail.toLowerCase()) {
       adminName = rows[i][nameIdx].toString();
       break;
     }
   }
 
-  return ok({ user: { email: email, role: "Admin", fullName: adminName } });
+  return ok({ user: { email: registeredAdminEmail, role: "Admin", fullName: adminName } });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1083,8 +1086,9 @@ function evictAllCache() {
   try {
     const keys = Object.keys(SCHEMAS).map(n => CACHE_PFX + n);
     CacheService.getScriptCache().removeAll(keys);
-    // Also remove OTP key if present
+    // Also remove OTP keys if present
     CacheService.getScriptCache().remove("OTP_" + ADMIN_EMAIL);
+    CacheService.getScriptCache().remove("OTP_USER_" + ADMIN_EMAIL);
   } catch (_) {}
 }
 
@@ -1147,9 +1151,11 @@ This is an automated security message.`;
 }
 
 function buildOTPEmail(otp) {
-  return `Hello,
+  return `Hello Super Admin,
 
-Your OrphanCare Admin Verification Code is:
+A new admin is attempting to login to OrphanCare Cloud. 
+
+Your verification code to approve this login is:
 
   ┌─────────────────┐
   │   ${otp}   │
@@ -1157,9 +1163,9 @@ Your OrphanCare Admin Verification Code is:
 
 This code expires in 5 minutes.
 
-If you did not attempt to sign in, please change your password immediately and contact your system administrator.
+Only share this code with the new admin if you authorize their access.
+If you did not authorize this login attempt, please ignore this email.
 
-Stay secure,
 OrphanCare Security Engine`;
 }
 

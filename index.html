@@ -16,7 +16,15 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-
+  <!-- Loading Animation Screen -->
+  <div id="startup-loader">
+    <div class="loader-content">
+      <div class="loader-logo">♥</div>
+      <div class="loader-spinner"></div>
+      <div class="loader-text">Loading OrphanCare...</div>
+    </div>
+  </div>
+  
   <!-- ================= AUTH LOGIN OVERLAY ================= -->
   <div id="login-overlay">
     <div class="login-card">
@@ -75,24 +83,24 @@
         </form>
       </div>
       
-      <!-- Form 3: OTP VERIFICATION VIEW (Initially Hidden) -->
-      <div id="auth-otp-section" style="display:none; flex-direction:column; gap:16px">
-        <div class="alert-banner alert-banner-info">
-          <svg viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-          <div style="text-align:left">
-            <h4 style="font-size:0.9rem">Security Code Dispatched</h4>
-            <p style="font-size:0.75rem">A 6-digit OTP code has been sent to the configured Admin OTP email address.</p>
-          </div>
-        </div>
-        <form id="auth-otp-form" onsubmit="event.preventDefault(); handleAuthOTPVerify();" style="display:flex; flex-direction:column; gap:16px">
-          <div class="form-group" style="text-align:left">
-            <label for="otp-code">6-Digit Verification Code</label>
-            <input type="text" id="otp-code" class="form-input" placeholder="000000" maxlength="6" style="text-align:center; font-size:1.4rem; letter-spacing:0.3em; font-weight:700" required>
-          </div>
-          <button type="submit" class="btn btn-primary" style="padding:14px">Confirm Verification Code</button>
-          <button type="button" class="btn btn-secondary" onclick="cancelOTPFlow()">Back to Sign In</button>
-        </form>
-      </div>
+<!-- Form 3: OTP VERIFICATION VIEW (Initially Hidden) -->
+       <div id="auth-otp-section" style="display:none; flex-direction:column; gap:16px">
+         <div class="alert-banner alert-banner-info">
+           <svg viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+           <div style="text-align:left">
+             <h4 style="font-size:0.9rem">Security Code Dispatched</h4>
+             <p style="font-size:0.75rem">A 6-digit OTP code has been sent to the super admin email: <strong>theesquire2020@gmail.com</strong>.</p>
+           </div>
+         </div>
+         <form id="auth-otp-form" onsubmit="event.preventDefault(); handleAuthOTPVerify();" style="display:flex; flex-direction:column; gap:16px">
+           <div class="form-group" style="text-align:left">
+             <label for="otp-code">6-Digit Verification Code</label>
+             <input type="text" id="otp-code" class="form-input" placeholder="000000" maxlength="6" style="text-align:center; font-size:1.4rem; letter-spacing:0.3em; font-weight:700" required>
+           </div>
+           <button type="submit" class="btn btn-primary" style="padding:14px">Confirm Verification Code</button>
+           <button type="button" class="btn btn-secondary" onclick="cancelOTPFlow()">Back to Sign In</button>
+         </form>
+       </div>
 
     </div>
   </div>
@@ -723,13 +731,13 @@
             <input type="text" id="settings-url-input" class="form-input" placeholder="https://script.google.com/macros/s/AKfycbws6yKCFrSxvkEYQvTWaRYGYlLuEAWCBXkhGKyLBDywYZv21_TczvAGvBh2HnP96Nxy/exec">
           </div>
 
-          <div class="form-group">
-            <label for="settings-admin-otp-email">Admin OTP Destination Email</label>
-            <input type="email" id="settings-admin-otp-email" class="form-input" placeholder="theesquire2020@gmail.com">
-            <p style="font-size:0.72rem; color:var(--text-muted); margin-top:6px">
-              All Admin OTP codes are sent strictly to this configured address.
-            </p>
-          </div>
+<div class="form-group">
+             <label for="settings-admin-otp-email">Super Admin OTP Destination Email</label>
+             <input type="email" id="settings-admin-otp-email" class="form-input" placeholder="theesquire2020@gmail.com" readonly>
+             <p style="font-size:0.72rem; color:var(--text-muted); margin-top:6px">
+               All Admin OTP codes are sent strictly to the super admin email: <strong>theesquire2020@gmail.com</strong>
+             </p>
+           </div>
           
           <div style="display:flex; gap:12px; flex-wrap:wrap">
             <button id="save-settings-btn" class="btn btn-primary" onclick="saveSettingsUrl()">Save Web App URL</button>
@@ -746,10 +754,11 @@
           </p>
 
           <div class="form-grid" style="grid-template-columns: repeat(2, 1fr)">
-            <div class="form-group">
-              <label for="settings-print-logo">Logo Symbol</label>
-              <input type="text" id="settings-print-logo" class="form-input" maxlength="4" placeholder="❤">
-            </div>
+<div class="form-group">
+               <label for="settings-print-logo">Logo Text or URL</label>
+               <input type="text" id="settings-print-logo" class="form-input" maxlength="100" placeholder="❤ or https://example.com/logo.png">
+               <p style="font-size:0.7rem; color:var(--text-muted); margin-top:4px">Text symbol or image URL (for reports)</p>
+             </div>
             <div class="form-group">
               <label for="settings-print-name">Orphanage Name</label>
               <input type="text" id="settings-print-name" class="form-input" placeholder="OrphanCare Children Home">
@@ -1221,9 +1230,9 @@
 
   <!-- 5.5 ACADEMIC REPORT MODAL -->
   <div id="academic-report-modal" class="modal-overlay">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width: 800px">
       <div class="modal-header">
-        <h3>Create Academic Report Card</h3>
+        <h3>Generate Academic Report Card</h3>
         <button class="modal-close-btn">&times;</button>
       </div>
       <div class="modal-body">
@@ -1246,31 +1255,28 @@
             </select>
           </div>
           
-          <div class="form-group">
-            <label for="academic-report-subject">Subject</label>
-            <input type="text" id="academic-report-subject" class="form-input" placeholder="e.g. Mathematics">
-          </div>
-          
-          <div class="form-group">
-            <label for="academic-report-grade">Grade</label>
-            <select id="academic-report-grade" class="form-select">
-              <option value="A">A - Excellent</option>
-              <option value="B">B - Good</option>
-              <option value="C">C - Satisfactory</option>
-              <option value="D">D - Needs Improvement</option>
-              <option value="E">E - Fail</option>
-            </select>
+          <div class="form-group form-group-full">
+            <label>Subjects & Scores (Kenyan CBC System)</label>
+            <div id="academic-report-entries" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px">
+              <div class="subject-entry" style="display: flex; gap: 8px; align-items: center">
+                <input type="text" class="academic-report-subject form-input" placeholder="Subject name (e.g. English)" style="flex: 2">
+                <input type="number" class="academic-report-score form-input" placeholder="Score (%)" min="0" max="100" style="flex: 1" oninput="updateGradeDisplay(this)">
+                <span class="academic-report-grade-display" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); text-align: center; font-weight: 600;"></span>
+                <button type="button" class="btn btn-secondary" onclick="addReportEntry(this)" style="flex: 0 0 40px;">+</button>
+                <button type="button" class="btn btn-danger" onclick="removeReportEntry(this)" style="flex: 0 0 40px; display: none;">×</button>
+              </div>
+            </div>
           </div>
           
           <div class="form-group form-group-full">
-            <label for="academic-report-comments">Teacher Comments</label>
-            <textarea id="academic-report-comments" class="form-textarea" placeholder="Performance notes and recommendations"></textarea>
+            <label for="academic-report-comments">Overall Teacher Comments</label>
+            <textarea id="academic-report-comments" class="form-textarea" placeholder="Overall performance summary and recommendations..."></textarea>
           </div>
         </form>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary btn-close-modal">Discard</button>
-        <button class="btn btn-primary" onclick="saveAcademicReportSubmit()">Create Report</button>
+        <button class="btn btn-primary" onclick="saveAcademicReportSubmit()">Generate Report</button>
       </div>
     </div>
   </div>
@@ -1736,13 +1742,45 @@ function responseJSON(obj) {
       
       for (let i = 0; i < trs.length; i++) {
         const rowText = trs[i].textContent || trs[i].innerText;
-        if (rowText.toLowerCase().indexOf(filter) > -1) {
-          trs[i].style.display = "";
-        } else {
-          trs[i].style.display = "none";
-        }
+        trs[i].style.display = rowText.toLowerCase().indexOf(filter) > -1 ? "" : "none";
       }
     }
+    
+    // Performance: Debounce scroll events
+    let scrollTimer;
+    document.addEventListener('scroll', function() {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(function() {
+        // Scroll handler complete
+      }, 100);
+    }, { passive: true });
+    
+    // Store logo URL in localStorage if it's a valid URL
+    const logoInput = document.getElementById('settings-print-logo');
+    if (logoInput) {
+      logoInput.addEventListener('input', function() {
+        if (this.value && this.value.startsWith('http')) {
+          localStorage.setItem('oms_print_logo_url', this.value);
+        }
+      });
+    }
   </script>
+  
+  <!-- Academic Report Card View Modal -->
+  <div id="report-card-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 700px">
+      <div class="modal-header">
+        <h3>Academic Report Card</h3>
+        <button class="modal-close-btn">&times;</button>
+      </div>
+      <div id="report-card-body" class="modal-body" style="padding: 0; background: #f8fafc;">
+        <!-- Dynamic report content -->
+      </div>
+      <div class="modal-footer" style="background: #f1f5f9; border-top: 1px solid var(--border-color);">
+        <button class="btn btn-secondary btn-close-modal">Close</button>
+        <button class="btn btn-primary" onclick="printReportCard()">Print Report</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

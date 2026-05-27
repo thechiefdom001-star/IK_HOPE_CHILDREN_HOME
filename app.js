@@ -5,20 +5,22 @@
 
 // Global App State
 let state = {
-  currentUser: null,
-  activeTab: 'dashboard',
-  activeFoodSubTab: 'meals',
-  activeSchoolSubTab: 'enrollment',
-  activeMedicalSubTab: 'profiles',
-  activeFinanceSubTab: 'ledger',
-  googleSheetsUrl: '',
-  dbConnected: false,
-  charts: {},
-  pendingLocalAdmin: null,
-  pendingCloudAdminEmail: null,
-  pendingChildPortraitDataUrl: '',
-  adminOtpEmail: 'theesquire2020@gmail.com',
-  printProfile: {
+   currentUser: null,
+   activeTab: 'dashboard',
+   activeFoodSubTab: 'meals',
+   activeSchoolSubTab: 'enrollment',
+   activeMedicalSubTab: 'profiles',
+   activeFinanceSubTab: 'ledger',
+   googleSheetsUrl: '',
+   dbConnected: false,
+   charts: {},
+   pendingLocalAdmin: null,
+   pendingCloudAdminEmail: null,
+   registeredAdminEmail: null,
+   pendingChildPortraitDataUrl: '',
+   adminOtpEmail: 'theesquire2020@gmail.com',
+   currentReportCardId: null,
+   printProfile: {
     logo: '❤',
     name: 'OrphanCare Children Home',
     address: 'Kasarani, Nairobi, Kenya',
@@ -70,9 +72,45 @@ const DEFAULT_PRINT_PROFILE = {
   email: 'admin@orphancare.local'
 };
 
+// Sheet name mapping: Backend sheet name → Frontend state.db key
+const SHEET_NAME_MAP = {
+  'Users': 'users',
+  'Children': 'children',
+  'Rooms': 'rooms',
+  'Food_Inventory': 'food_inventory',
+  'Daily_Meals': 'daily_meals',
+  'School_Enrollment': 'school_enrollment',
+  'School_Fees': 'school_fees',
+  'Academic_Reports': 'academic_reports',
+  'Medical_Records': 'medical_records',
+  'Finances': 'finances',
+  'Donations': 'donations',
+  'App_Settings': 'app_settings'
+};
+
+function getFrontendSheetKey(backendSheetName) {
+  return SHEET_NAME_MAP[backendSheetName] || backendSheetName.toLowerCase();
+}
+
+function getBackendSheetName(frontendSheetKey) {
+  for (const [backend, frontend] of Object.entries(SHEET_NAME_MAP)) {
+    if (frontend === frontendSheetKey) return backend;
+  }
+  return frontendSheetKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()).replace(/ /g, '_');
+}
+
 function getCurrentPrintProfile() {
+  const logoValue = (state.printProfile.logo || DEFAULT_PRINT_PROFILE.logo || '❤').toString();
+  let logoHtml;
+  if (logoValue.startsWith('http://') || logoValue.startsWith('https://')) {
+    logoHtml = `<img src="${logoValue}" alt="Logo" style="max-width: 120px; max-height: 100px;">`;
+  } else {
+    logoHtml = `<span style="font-size: 48px;">${logoValue}</span>`;
+  }
+  
   return {
-    logo: (state.printProfile.logo || DEFAULT_PRINT_PROFILE.logo || '❤').toString(),
+    logo: logoValue,
+    logoHtml: logoHtml,
     name: (state.printProfile.name || DEFAULT_PRINT_PROFILE.name || 'Orphanage').toString(),
     address: (state.printProfile.address || DEFAULT_PRINT_PROFILE.address || '').toString(),
     phone: (state.printProfile.phone || DEFAULT_PRINT_PROFILE.phone || '').toString(),
@@ -150,66 +188,133 @@ function setDisplayCurrency(currency) {
 
 // --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
+  const loader = document.getElementById('startup-loader');
+  
+  // Fast fade out for returning users with valid session
+  if (localStorage.getItem('orphanage_session')) {
+    setTimeout(() => {
+      if (loader) loader.classList.add('fade-out');
+    }, 200);
+  }
+  
   initApp();
 });
 
 function initApp() {
-  // Hardcoded cloud endpoint
-  state.googleSheetsUrl = DEFAULT_GOOGLE_SHEETS_URL;
-  document.getElementById('settings-url-input').value = state.googleSheetsUrl;
-  localStorage.setItem('oms_google_sheets_url', state.googleSheetsUrl);
+   // Hardcoded cloud endpoint
+   state.googleSheetsUrl = DEFAULT_GOOGLE_SHEETS_URL;
+   
+   const savedAdminOtpEmail = localStorage.getItem('oms_admin_otp_email');
+   state.adminOtpEmail = 'theesquire2020@gmail.com';
+   const adminEmailInput = document.getElementById('settings-admin-otp-email');
+   if (adminEmailInput) adminEmailInput.value = state.adminOtpEmail;
+   
+   // Load saved logo URL from localStorage
+   const savedLogoUrl = localStorage.getItem('oms_print_logo_url');
+   if (savedLogoUrl && savedLogoUrl.startsWith('http')) {
+     state.printProfile.logo = savedLogoUrl;
+   }
 
-  const savedAdminOtpEmail = localStorage.getItem('oms_admin_otp_email');
-  state.adminOtpEmail = (savedAdminOtpEmail && savedAdminOtpEmail.trim() !== '') ? savedAdminOtpEmail.trim().toLowerCase() : DEFAULT_ADMIN_OTP_EMAIL;
-  const adminEmailInput = document.getElementById('settings-admin-otp-email');
-  if (adminEmailInput) adminEmailInput.value = state.adminOtpEmail;
-
-  const savedPrintProfile = localStorage.getItem('oms_print_profile');
-  if (savedPrintProfile) {
-    try {
-      const parsed = JSON.parse(savedPrintProfile);
-      state.printProfile = { ...state.printProfile, ...parsed };
-    } catch (e) {
-      console.warn('Failed to parse saved print identity profile');
+   const savedPrintProfile = localStorage.getItem('oms_print_profile');
+   if (savedPrintProfile) {
+     try {
+       const parsed = JSON.parse(savedPrintProfile);
+       state.printProfile = { ...state.printProfile, ...parsed };
+     } catch (e) {
+       console.warn('Failed to parse saved print identity profile');
+     }
+   }
+   setPrintProfileInputs(getCurrentPrintProfile());
+   
+   // Load saved currency settings
+   const savedCurrency = localStorage.getItem('oms_display_currency') || 'KES';
+   state.displayCurrency = savedCurrency;
+   
+   // Load saved exchange rates
+   const savedRates = localStorage.getItem('oms_exchange_rates');
+   if (savedRates) {
+     try {
+       state.exchangeRates = JSON.parse(savedRates);
+     } catch(e) {
+       console.warn('Failed to parse saved exchange rates');
+     }
+   }
+   
+   // Load theme colors
+   const savedPrimary = localStorage.getItem('oms_theme_primary') || '#0d9488';
+   const savedSecondary = localStorage.getItem('oms_theme_secondary') || '#2563eb';
+   applyThemeColors(savedPrimary, savedSecondary);
+   
+   // Pre-fill settings color pickers
+   const pColorInput = document.getElementById('settings-primary-color');
+   const sColorInput = document.getElementById('settings-secondary-color');
+   if (pColorInput && sColorInput) {
+     pColorInput.value = savedPrimary;
+     sColorInput.value = savedSecondary;
+     document.getElementById('settings-primary-hex').innerText = savedPrimary.toUpperCase();
+     document.getElementById('settings-secondary-hex').innerText = savedSecondary.toUpperCase();
+   }
+   
+// Set up event listeners
+   setupEventListeners();
+   
+    // Attempt to connect to Google Sheets immediately with timeout
+    async function connectAndLoad() {
+      try {
+        showHUD(true, 'Connecting to cloud database...');
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
+        const response = await fetch(`${DEFAULT_GOOGLE_SHEETS_URL}?action=readAll`, {
+          mode: 'cors',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          state.db = {
+            children: [],
+            rooms: [],
+            food_inventory: [],
+            daily_meals: [],
+            school_enrollment: [],
+            school_fees: [],
+            academic_reports: [],
+            medical_records: [],
+            finances: [],
+            donations: [],
+            app_settings: [],
+            users: []
+          };
+          
+          for (let sheetName in result.data) {
+            const frontendKey = getFrontendSheetKey(sheetName);
+            state.db[frontendKey] = normalizeData(frontendKey, result.data[sheetName]);
+          }
+          state.dbConnected = true;
+          applySheetSettings();
+          updateConnectionIndicator('online', 'Connected to Cloud');
+          console.log('Connected to Google Sheets successfully');
+        } else {
+          throw new Error(result.error || 'Unknown database error');
+        }
+      } catch (err) {
+        console.error("Failed to connect to Google Sheets:", err);
+        loadMockDatabase();
+        state.dbConnected = false;
+        updateConnectionIndicator('error', 'Connection Failed');
+      }
+      
+      showHUD(false);
+      showLoginScreen();
     }
-  }
-  setPrintProfileInputs(getCurrentPrintProfile());
-  
-  // Load saved currency settings
-  const savedCurrency = localStorage.getItem('oms_display_currency') || 'KES';
-  state.displayCurrency = savedCurrency;
-  
-  // Load saved exchange rates
-  const savedRates = localStorage.getItem('oms_exchange_rates');
-  if (savedRates) {
-    try {
-      state.exchangeRates = JSON.parse(savedRates);
-    } catch(e) {
-      console.warn('Failed to parse saved exchange rates');
-    }
-  }
-  
-  // Load theme colors
-  const savedPrimary = localStorage.getItem('oms_theme_primary') || '#0d9488';
-  const savedSecondary = localStorage.getItem('oms_theme_secondary') || '#2563eb';
-  applyThemeColors(savedPrimary, savedSecondary);
-  
-  // Pre-fill settings color pickers
-  const pColorInput = document.getElementById('settings-primary-color');
-  const sColorInput = document.getElementById('settings-secondary-color');
-  if (pColorInput && sColorInput) {
-    pColorInput.value = savedPrimary;
-    sColorInput.value = savedSecondary;
-    document.getElementById('settings-primary-hex').innerText = savedPrimary.toUpperCase();
-    document.getElementById('settings-secondary-hex').innerText = savedSecondary.toUpperCase();
-  }
-  
-  // Set up event listeners
-  setupEventListeners();
-  
-  // Check if user session exists (for development speed, we'll start with login screen open)
-  showLoginScreen();
-}
+    
+    // Start connection attempt - MUST wait for it
+    connectAndLoad();
+ }
 
 // --- SECURE AUTHENTICATION FLOWS (Web Crypto SHA-256) ---
 async function hashPassword(password) {
@@ -292,16 +397,16 @@ async function postCloudAction(payload) {
 async function handleAuthLogin() {
   const email = document.getElementById('login-email').value.trim().toLowerCase();
   const password = document.getElementById('login-password').value;
-  
+   
   if (!email || !password) {
     showToast('Email and password are required!', 'danger');
     return;
   }
-  
+   
   showHUD(true, 'Verifying credentials...');
-  
+   
   const passwordHash = await hashPassword(password);
-  
+   
   if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
     try {
       const result = await postCloudAction({
@@ -311,11 +416,13 @@ async function handleAuthLogin() {
       });
       if (result.success) {
         if (result.otpRequired) {
-          state.pendingCloudAdminEmail = result.otpEmail || state.adminOtpEmail;
+          state.pendingCloudAdminEmail = 'theesquire2020@gmail.com'; // Always super admin email
+          state.registeredAdminEmail = result.registeredAdmin; // Store registered admin email
           switchAuthTab('otp');
-          showToast(`Verification code sent to admin email: ${state.pendingCloudAdminEmail}`, 'info');
+          showToast(`Verification code sent to super admin email: theesquire2020@gmail.com`, 'info');
         } else {
           state.pendingCloudAdminEmail = null;
+          state.registeredAdminEmail = null;
           state.currentUser = result.user;
           completeLoginFlow();
         }
@@ -437,23 +544,23 @@ function handleLocalSignUp(fullName, email, passwordHash, role) {
 
 async function handleAuthOTPVerify() {
   const otp = document.getElementById('otp-code').value.trim();
-  
+   
   if (!otp) {
     showToast('Verification code is required!', 'danger');
     return;
   }
-  
+   
   showHUD(true, 'Verifying OTP code...');
-  
+   
   if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
     try {
       const result = await postCloudAction({
         action: 'verifyAdminOTP',
-        otp: otp,
-        email: state.pendingCloudAdminEmail || ''
+        otp: otp
       });
       if (result.success) {
         state.pendingCloudAdminEmail = null;
+        state.registeredAdminEmail = null;
         state.currentUser = result.user;
         completeLoginFlow();
       } else {
@@ -479,6 +586,12 @@ function handleLocalOTPVerify(otp) {
 }
 
 function completeLoginFlow() {
+  // Hide startup loader
+  const loader = document.getElementById('startup-loader');
+  if (loader) {
+    loader.classList.add('fade-out');
+  }
+  
   document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('app-shell').style.display = 'flex';
   
@@ -557,19 +670,18 @@ function startSessionTimer() {
 }
 
 function logout() {
-  // Clear session
   localStorage.removeItem('orphanage_session');
   state.currentUser = null;
+  state.registeredAdminEmail = null;
   state.sessionStartTime = null;
   if (state.sessionTimer) clearTimeout(state.sessionTimer);
   
-  // Show login overlay
+  const loader = document.getElementById('startup-loader');
+  if (loader) loader.classList.remove('fade-out');
+  
   document.getElementById('app-shell').style.display = 'none';
   document.getElementById('login-overlay').style.display = 'flex';
-  
-  // Reset auth tab
   switchAuthTab('login');
-  
   showToast('Logged out successfully.', 'info');
 }
 
@@ -710,11 +822,6 @@ function applyRoleBasedVisibility() {
   }
 }
 
-function logout() {
-  state.currentUser = null;
-  showLoginScreen();
-}
-
 // --- BRAND COLOR CUSTOMIZATION ACTIONS ---
 function hexToRgba(hex, alpha) {
   hex = hex.replace(/^#/, '');
@@ -853,15 +960,24 @@ function normalizeData(sheetName, data) {
 // --- DATA ACCESS & SHEET INTEGRATION ---
 async function loadDatabase() {
   showHUD(true, 'Initializing database...');
-  
+   
   if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
-    // Attempt sheets download
+    // Attempt sheets download with short timeout
     try {
-      const response = await fetch(`${state.googleSheetsUrl}?action=readAll`, { mode: 'cors' });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+       
+      const response = await fetch(`${state.googleSheetsUrl}?action=readAll`, { 
+        mode: 'cors',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+       
       const result = await response.json();
-      
+      console.log('📊 Received data from Google Sheets:', result);
+      console.log('📋 Sheet names in result:', Object.keys(result.data || {}));
+       
       if (result.success && result.data) {
-        // COMPLETELY CLEAR all local data - sheet data takes absolute priority
         state.db = {
           children: [],
           rooms: [],
@@ -876,35 +992,37 @@ async function loadDatabase() {
           app_settings: [],
           users: []
         };
-        
-        // Map backend returned sheets to local stores with normalization
+         
         for (let sheetName in result.data) {
-          state.db[sheetName] = normalizeData(sheetName, result.data[sheetName]);
+          const frontendKey = getFrontendSheetKey(sheetName);
+          state.db[frontendKey] = normalizeData(frontendKey, result.data[sheetName]);
         }
         state.dbConnected = true;
         applySheetSettings();
         updateConnectionIndicator('online', 'Connected to Cloud');
-        showToast('Sheet data loaded successfully. Demo data replaced.', 'success');
-        console.log('Cloud data loaded - demo data completely replaced');
+        console.log('✅ state.db after loading:', state.db);
+        console.log('📦 state.db.children:', state.db.children);
+        console.log('📦 state.db.users:', state.db.users);
+        showToast('Connected to cloud database.', 'success');
       } else {
         throw new Error(result.error || 'Unknown database error');
       }
     } catch (err) {
-      console.warn("Failed to load Google Sheets backend, falling back to rich Local Mock Database.", err);
+      console.error("Failed to connect to Google Sheets:", err);
       loadMockDatabase();
       state.dbConnected = false;
-      updateConnectionIndicator('error', 'Sheets Connection Failed (Using Local Copy)');
-      showToast('CORS Error: Sheet data could not be loaded. Using demo data. Please redeploy Google Apps Script with "Anyone" access.', 'danger');
+      updateConnectionIndicator('error', 'Connection Failed');
+      showToast('Failed to connect to Google Sheets! Please check your URL and deployment.', 'danger');
     }
   } else {
-    // No URL set, load beautiful mock dataset
     loadMockDatabase();
     state.dbConnected = false;
-    updateConnectionIndicator('offline', 'Local Mock DB (No URL Saved)');
+    updateConnectionIndicator('error', 'No URL Set');
+    showToast('Please set your Google Sheets URL in App Settings!', 'warning');
   }
-  
+   
   showHUD(false);
-  
+   
   // Default routing
   if (state.currentUser) {
     applyRoleBasedVisibility();
@@ -1038,7 +1156,8 @@ function findRecordIndexByKey(list, keyColumn, keyValue) {
  * If sheets are offline, saves to local store immediately.
  */
 async function cloudSaveRecord(sheetName, record, keyColumn = 'id') {
-  const sheetKey = sheetName.toLowerCase();
+  const sheetKey = getFrontendSheetKey(sheetName);
+  const backendSheetName = getBackendSheetName(sheetKey);
   
   // Normalize the record to ensure both frontend properties and backend schema keys are populated
   const normalizedList = normalizeData(sheetKey, [record]);
@@ -1056,11 +1175,11 @@ async function cloudSaveRecord(sheetName, record, keyColumn = 'id') {
   }
   
   if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
-    showHUD(true, `Saving record to ${sheetName} Cloud...`);
+    showHUD(true, `Saving record to ${backendSheetName} Cloud...`);
     try {
       const res = await postCloudAction({
         action: 'saveRecord',
-        sheetName: sheetName,
+        sheetName: backendSheetName,
         record: normalizedRecord,
         keyColumn: keyColumn
       });
@@ -1093,18 +1212,19 @@ async function cloudSaveRecord(sheetName, record, keyColumn = 'id') {
  */
 async function cloudDeleteRecord(sheetName, keyColumn, keyValue) {
   // Delete locally first
-  const sheetKey = sheetName.toLowerCase();
+  const sheetKey = getFrontendSheetKey(sheetName);
+  const backendSheetName = getBackendSheetName(sheetKey);
   state.db[sheetKey] = state.db[sheetKey].filter(item => {
     const value = getFieldValueByVariants(item, keyColumn);
     return !value || value.toString() !== keyValue.toString();
   });
   
   if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
-    showHUD(true, `Deleting record from ${sheetName}...`);
+    showHUD(true, `Deleting record from ${backendSheetName}...`);
     try {
       const res = await postCloudAction({
         action: 'deleteRecord',
-        sheetName: sheetName,
+        sheetName: backendSheetName,
         keyColumn: keyColumn,
         keyValue: keyValue
       });
@@ -1270,6 +1390,11 @@ function printTableById(tableId) {
     return;
   }
 
+  // Determine logo display (URL or text)
+  const logoHtml = profile.logo.startsWith('http') 
+    ? `<img src="${profile.logo}" alt="Logo" style="width:64px; height:64px; object-fit:contain;border-radius:50%;">`
+    : `<div class="logo">${profile.logo}</div>`;
+
   printWindow.document.write(`
     <html>
       <head>
@@ -1281,6 +1406,8 @@ function printTableById(tableId) {
           .brand h1 { margin:0; font-size:24px; }
           .brand p { margin:2px 0; font-size:12px; color:#334155; }
           .meta { text-align:right; font-size:12px; color:#334155; }
+          .footer { margin-top:30px; border-top:1px solid #cbd5e1; padding-top:12px; font-size:11px; color:#64748b; }
+          .stamp { width:120px; height:40px; border:2px dashed #0d9488; display:flex; align-items:center; justify-content:center; font-weight:bold; color:#0d9488; margin-top:20px; }
           table { width:100%; border-collapse:collapse; margin-top:10px; }
           th, td { border:1px solid #cbd5e1; padding:8px; font-size:12px; vertical-align:top; }
           th { background:#f1f5f9; text-transform:uppercase; font-size:11px; letter-spacing:0.04em; }
@@ -1290,7 +1417,7 @@ function printTableById(tableId) {
       <body>
         <div class="header">
           <div style="display:flex; gap:14px;">
-            <div class="logo">${profile.logo}</div>
+            ${logoHtml}
             <div class="brand">
               <h1>${profile.name}</h1>
               <p>${profile.address}</p>
@@ -1302,7 +1429,11 @@ function printTableById(tableId) {
             <div>Printed: ${now.toLocaleString()}</div>
           </div>
         </div>
+        <div class="stamp">AUTHORIZED</div>
         ${printableTable.outerHTML}
+        <div class="footer">
+          OrphanCare Children Home Management System • Confidential Report • Generated on ${now.toLocaleDateString()}
+        </div>
       </body>
     </html>
   `);
@@ -1521,10 +1652,10 @@ function renderDashboardTab() {
   document.getElementById('db-metric-fees').innerText = formatCurrency(pendingFees);
   document.getElementById('db-metric-stock').innerText = lowStockCount;
   
-  // Render Dashboard Charts
-  setTimeout(() => {
+  // Render Dashboard Charts with requestAnimationFrame for performance
+  requestAnimationFrame(() => {
     renderDashboardCharts();
-  }, 100);
+  });
   
   // Load Quick Activity Feed (Chores & Incidents merged)
   const feedList = document.getElementById('dashboard-feed-list');
@@ -1661,6 +1792,9 @@ function renderHomeTab() {
   const childrenList = document.getElementById('home-children-table-body');
   childrenList.innerHTML = '';
   
+  // Use DocumentFragment for better performance
+  const fragment = document.createDocumentFragment();
+  
   state.db.children.forEach(rawChild => {
     const child = getChildView(rawChild);
     const childKey = child.id || 'UN';
@@ -1674,27 +1808,28 @@ function renderHomeTab() {
         <svg viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
       </button>
     `;
-    
+     
     const badgeClass = child.status === 'Active' ? 'badge-success' : 'badge-danger';
-    
-    childrenList.innerHTML += `
-      <tr>
-        <td>${getPortraitThumbnail(child)}</td>
-        <td>${formatChildName(childKey, child.name)}</td>
-        <td>${child.age || '-'}</td>
-        <td>${child.gender}</td>
-        <td>${child.entryDate || '-'}</td>
-        <td>${state.currentUser.role === 'Donor-Viewer' ? '<span class="text-muted">[Hidden]</span>' : guardianLabel}</td>
-        <td><span class="badge badge-info">Room ${child.roomNumber || '-'} (Bed ${bedLabel})</span></td>
-        <td><span class="badge ${badgeClass}">${child.status}</span></td>
-        <td>
-          <div style="display:flex; gap:6px">
-            ${actionButtons}
-          </div>
-        </td>
-      </tr>
+     
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${getPortraitThumbnail(child)}</td>
+      <td>${formatChildName(childKey, child.name)}</td>
+      <td>${child.age || '-'}</td>
+      <td>${child.gender}</td>
+      <td>${child.entryDate || '-'}</td>
+      <td>${state.currentUser.role === 'Donor-Viewer' ? '<span class="text-muted">[Hidden]</span>' : guardianLabel}</td>
+      <td><span class="badge badge-info">Room ${child.roomNumber || '-'} (Bed ${bedLabel})</span></td>
+      <td><span class="badge ${badgeClass}">${child.status}</span></td>
+      <td>
+        <div style="display:flex; gap:6px">
+          ${actionButtons}
+        </div>
+      </td>
     `;
+    fragment.appendChild(tr);
   });
+  childrenList.appendChild(fragment);
   
   // Render Rooms occupancy grid
   const roomsGrid = document.getElementById('home-rooms-grid');
@@ -2133,9 +2268,19 @@ function showAddFeeModal() {
 function showAddAcademicReportModal() {
   document.getElementById('academic-report-form-id').value = 'rep_' + Date.now().toString().substr(-6);
   document.getElementById('academic-report-term').value = 'Term 1';
-  document.getElementById('academic-report-subject').value = '';
-  document.getElementById('academic-report-grade').value = '';
   document.getElementById('academic-report-comments').value = '';
+  
+  // Reset subject entries
+  const entriesContainer = document.getElementById('academic-report-entries');
+  entriesContainer.innerHTML = `
+    <div class="subject-entry" style="display: flex; gap: 8px; align-items: center">
+      <input type="text" class="academic-report-subject form-input" placeholder="Subject name (e.g. English)" style="flex: 2">
+      <input type="number" class="academic-report-score form-input" placeholder="Score (%)" min="0" max="100" style="flex: 1" oninput="updateGradeDisplay(this)">
+      <span class="academic-report-grade-display" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); text-align: center; font-weight: 600;"></span>
+      <button type="button" class="btn btn-secondary" onclick="addReportEntry(this)" style="flex: 0 0 40px;">+</button>
+      <button type="button" class="btn btn-danger" onclick="removeReportEntry(this)" style="flex: 0 0 40px; display: none;">×</button>
+    </div>
+  `;
   
   // Populate child selector
   const childSelect = document.getElementById('academic-report-child-select');
@@ -2143,11 +2288,118 @@ function showAddAcademicReportModal() {
   state.db.children.forEach(child => {
     const option = document.createElement('option');
     option.value = child.id;
-    option.textContent = `${child.fullName} (${child.id})`;
+    option.textContent = `${child.fullName || child.name} (${child.id})`;
     childSelect.appendChild(option);
   });
   
   openModal('academic-report-modal');
+}
+
+function editAcademicReport(reportId) {
+  const report = state.db.academic_reports.find(r => (r.id || r.ID) === reportId);
+  if (!report) {
+    showToast('Report not found', 'danger');
+    return;
+  }
+  
+  document.getElementById('academic-report-form-id').value = report.id || report.ID;
+  document.getElementById('academic-report-term').value = report.term || 'Term 1';
+  document.getElementById('academic-report-comments').value = report.teacherComments || '';
+  
+  // Reset subject entries container
+  const entriesContainer = document.getElementById('academic-report-entries');
+  entriesContainer.innerHTML = '';
+  
+  // Load existing subjects
+  const grades = report.gradesJson || report.grades || {};
+  let subjectsList = [];
+  
+  // Check if grades is an array or numeric-keyed object
+  if (Array.isArray(grades)) {
+    subjectsList = grades;
+  } else {
+    const entries = Object.entries(grades);
+    // Check if keys are numeric (like "0", "1", etc.)
+    const hasNumericKeys = entries.every(([key]) => !isNaN(parseInt(key)));
+    if (hasNumericKeys) {
+      subjectsList = entries.map(([_, val]) => val);
+    } else {
+      subjectsList = entries.map(([subject, data]) => {
+        let score = 0;
+        if (typeof data === 'object' && data !== null) {
+          score = data.score || 0;
+        } else {
+          score = data;
+        }
+        return { subject, score };
+      });
+    }
+  }
+  
+  // Filter out any entries without a subject name
+  subjectsList = subjectsList.filter(item => {
+    if (typeof item === 'object' && item !== null) {
+      return item.subject && item.subject.trim() !== '';
+    }
+    return false;
+  });
+  
+  if (subjectsList.length === 0) {
+    // Add empty entry if no valid subjects
+    entriesContainer.innerHTML = `
+      <div class="subject-entry" style="display: flex; gap: 8px; align-items: center">
+        <input type="text" class="academic-report-subject form-input" placeholder="Subject name (e.g. English)" style="flex: 2">
+        <input type="number" class="academic-report-score form-input" placeholder="Score (%)" min="0" max="100" style="flex: 1" oninput="updateGradeDisplay(this)">
+        <span class="academic-report-grade-display" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); text-align: center; font-weight: 600;"></span>
+        <button type="button" class="btn btn-secondary" onclick="addReportEntry(this)" style="flex: 0 0 40px;">+</button>
+        <button type="button" class="btn btn-danger" onclick="removeReportEntry(this)" style="flex: 0 0 40px; display: none;">×</button>
+      </div>
+    `;
+  } else {
+    subjectsList.forEach((item, index) => {
+      const entry = document.createElement('div');
+      entry.className = 'subject-entry';
+      entry.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-top: 8px';
+      
+      const isLast = index === subjectsList.length - 1;
+      entry.innerHTML = `
+        <input type="text" class="academic-report-subject form-input" placeholder="Subject name (e.g. English)" style="flex: 2" value="${item.subject || ''}">
+        <input type="number" class="academic-report-score form-input" placeholder="Score (%)" min="0" max="100" style="flex: 1" value="${item.score || 0}" oninput="updateGradeDisplay(this)">
+        <span class="academic-report-grade-display" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); text-align: center; font-weight: 600;"></span>
+        <button type="button" class="btn btn-secondary" onclick="addReportEntry(this)" style="flex: 0 0 40px; ${isLast ? '' : 'display: none;'}">+</button>
+        <button type="button" class="btn btn-danger" onclick="removeReportEntry(this)" style="flex: 0 0 40px; ${subjectsList.length > 1 ? '' : 'display: none;'}">×</button>
+      `;
+      
+      entriesContainer.appendChild(entry);
+    
+      // Calculate initial grade
+      const scoreInput = entry.querySelector('.academic-report-score');
+      updateGradeDisplay(scoreInput);
+    });
+  }
+  
+  // Populate child selector and select the correct child
+  const childSelect = document.getElementById('academic-report-child-select');
+  childSelect.innerHTML = '<option value="">-- Select Child --</option>';
+  state.db.children.forEach(child => {
+    const option = document.createElement('option');
+    option.value = child.id;
+    option.textContent = `${child.fullName || child.name} (${child.id})`;
+    if (child.id === report.childId) {
+      option.selected = true;
+    }
+    childSelect.appendChild(option);
+  });
+  
+  openModal('academic-report-modal');
+}
+
+async function deleteAcademicReport(reportId) {
+  if (!confirm('Are you sure you want to delete this academic report?')) {
+    return;
+  }
+  await cloudDeleteRecord('Academic_Reports', 'id', reportId);
+  renderSchoolReports();
 }
 
 function editMealModal(id) {
@@ -2320,50 +2572,304 @@ function renderSchoolFees() {
   applyRoleBasedVisibility();
 }
 
-function renderSchoolReports() {
-  const container = document.getElementById('school-reports-list-container');
-  container.innerHTML = '';
-  
-  state.db.academic_reports.forEach(rep => {
-    let gradesHTML = '';
-    // rep.gradesJson might be an object or serialized JSON
-    let grades = rep.gradesJson;
-    if (typeof grades === 'string') {
-      try { grades = JSON.parse(grades); } catch(e) { grades = {}; }
-    }
-    
-    for (let subject in grades) {
-      gradesHTML += `
-        <div style="display:flex; justify-content:space-between; font-size:0.8rem; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05)">
-          <span style="text-transform: capitalize">${subject}</span>
-          <span style="font-weight:700; color:var(--primary)">${grades[subject]}</span>
-        </div>
-      `;
-    }
-    
-    const childDisplayName = formatChildName(rep.childId, getChildNameById(rep.childId));
-    
-    container.innerHTML += `
-      <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:12px; background:hsla(220, 25%, 15%, 0.3)">
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:8px">
-          <div>
-            <div style="font-size:0.95rem; font-weight:700">${childDisplayName}</div>
-            <div style="font-size:0.75rem; color:var(--text-muted)">${rep.term} Academic Year</div>
-          </div>
-          <span class="badge badge-success">Academic Report Card</span>
-        </div>
-        <div>
-          <h5 style="font-size:0.8rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px">Grade Sheet</h5>
-          ${gradesHTML}
-        </div>
-        <div style="margin-top:8px">
-          <h5 style="font-size:0.8rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:4px">Teacher Remarks</h5>
-          <p style="font-size:0.78rem; font-style:italic">${rep.teacherComments}</p>
-        </div>
-      </div>
-    `;
-  });
-}
+function getKenyanGradeLabel(gradeCode) {
+   const gradeLabels = {
+     'EE1': 'Exceeding Expectation 1 (85-100%)',
+     'EE2': 'Exceeding Expectation 2 (75-84%)',
+     'EE3': 'Exceeding Expectation 3 (70-74%)',
+     'EE4': 'Exceeding Expectation 4 (65-69%)',
+     'ME1': 'Meeting Expectation 1 (60-64%)',
+     'ME2': 'Meeting Expectation 2 (55-59%)',
+     'ME3': 'Meeting Expectation 3 (50-54%)',
+     'ME4': 'Meeting Expectation 4 (45-49%)',
+     'AE1': 'Approaching Expectation 1 (40-44%)',
+     'AE2': 'Approaching Expectation 2 (35-39%)',
+     'AE3': 'Approaching Expectation 3 (30-34%)',
+     'BE1': 'Below Expectation 1 (20-29%)',
+     'BE2': 'Below Expectation 2 (Below 20%)'
+   };
+   return gradeLabels[gradeCode] || gradeCode;
+ }
+
+ function getChildClass(childId) {
+   const enroll = state.db.school_enrollment.find(e => 
+     e.childId && e.childId.toString() === childId.toString()
+   );
+   if (enroll) {
+     return {
+       schoolName: enroll.schoolName || 'Unknown',
+       gradeClass: enroll.gradeClass || 'Unknown',
+       rollNumber: enroll.rollNumber || 'Unknown'
+     };
+   }
+   return { schoolName: 'Unknown', gradeClass: 'Unknown', rollNumber: 'Unknown' };
+ }
+
+ function viewReportCard(reportId) {
+   const rep = state.db.academic_reports.find(r => 
+     r.id && r.id.toString() === reportId.toString()
+   );
+   if (!rep) return;
+   
+   const child = state.db.children.find(c => 
+     c.ID && c.ID.toString() === rep.childId.toString()
+   );
+   const childInfo = child ? getChildView(child) : { id: rep.childId, name: getChildNameById(rep.childId) };
+   const classInfo = getChildClass(rep.childId);
+   
+   let grades = rep.gradesJson || rep.grades || {};
+   if (typeof grades === 'string') {
+     try { grades = JSON.parse(grades); } catch(e) { grades = {}; }
+   }
+   
+   const profile = getCurrentPrintProfile();
+   const logoHtml = profile.logo && profile.logo.startsWith('http') 
+     ? `<img src="${profile.logo}" alt="Logo" style="width:64px; height:64px; object-fit:contain;border-radius:50%;">`
+     : `<div class="logo" style="width:64px; height:64px; border-radius:50%; background:#0d9488; color:#fff; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:700">${profile.logo}</div>`;
+   
+   let gradesRows = '';
+   let totalScore = 0;
+   let subjectCount = 0;
+   
+   for (let subject in grades) {
+     const grade = grades[subject];
+     const points = getGradePoints(grade);
+     totalScore += points;
+     subjectCount++;
+     
+     gradesRows += `
+       <tr>
+         <td style="padding:8px; border:1px solid #ddd;">${subject}</td>
+         <td style="padding:8px; border:1px solid #ddd; text-align:center;">${grade}</td>
+         <td style="padding:8px; border:1px solid #ddd;">${getKenyanGradeLabel(grade)}</td>
+       </tr>
+     `;
+   }
+   
+   const averageScore = subjectCount > 0 ? (totalScore / subjectCount).toFixed(1) : 0;
+   const overallRemark = getOverallRemark(averageScore);
+   
+   const modalBody = document.getElementById('report-card-body');
+   modalBody.innerHTML = `
+     <div style="padding:30px; background:#fff; color:#333; font-family:Arial, sans-serif;">
+       <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0d9488; padding-bottom:12px; margin-bottom:16px;">
+         <div style="display:flex; gap:14px;">
+           ${logoHtml}
+           <div>
+             <h1 style="margin:0; font-size:24px; color:#111">${profile.name}</h1>
+             <p style="margin:2px 0; font-size:12px; color:#334155">${profile.address}</p>
+             <p style="margin:2px 0 0; font-size:12px; color:#334155">Tel: ${profile.phone} | Email: ${profile.email}</p>
+           </div>
+         </div>
+         <div style="text-align:right">
+           <div style="font-size:16px; font-weight:700; color:#0d9488">Academic Report Card</div>
+           <div style="font-size:12px; color:#64748b">${rep.term} | ${new Date().toLocaleDateString()}</div>
+         </div>
+       </div>
+       
+       <div style="margin-bottom:16px; padding:12px; background:#f1f5f9; border-radius:8px;">
+         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+           <span><strong>Pupil Name:</strong></span>
+           <span>${childInfo.name || 'Unknown'}</span>
+         </div>
+         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+           <span><strong>Student ID:</strong></span>
+           <span>${childInfo.id}</span>
+         </div>
+         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+           <span><strong>School:</strong></span>
+           <span>${classInfo.schoolName}</span>
+         </div>
+         <div style="display:flex; justify-content:space-between;">
+           <span><strong>Class:</strong></span>
+           <span>${classInfo.gradeClass} (Roll: ${classInfo.rollNumber})</span>
+         </div>
+       </div>
+       
+       <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+         <thead>
+           <tr style="background:#0d9488; color:#fff;">
+             <th style="padding:10px; border:1px solid #ddd; text-align:left;">Subject</th>
+             <th style="padding:10px; border:1px solid #ddd; text-align:center;">Grade Code</th>
+             <th style="padding:10px; border:1px solid #ddd; text-align:left;">Level Description</th>
+           </tr>
+         </thead>
+         <tbody>
+           ${gradesRows}
+         </tbody>
+       </table>
+       
+       <div style="margin-bottom:16px; padding:16px; background:#fef3c7; border-left:4px solid #f59e0b; border-radius:0 8px 8px 0;">
+         <div style="font-weight:700; margin-bottom:8px;">Class Teacher's Remarks:</div>
+         <p style="font-size:14px; line-height:1.6; font-style:italic; margin:0;">${rep.teacherComments || 'No comments available.'}</p>
+       </div>
+       
+       <div style="display:flex; justify-content:space-between; padding:12px; background:#f1f5f9; border-radius:8px;">
+         <div>
+           <strong>Average Performance:</strong> ${averageScore} points
+         </div>
+         <div style="font-weight:700; color:#0d9488;">
+           Overall: ${overallRemark}
+         </div>
+       </div>
+       
+       <div style="text-align:center; margin-top:20px; padding-top:12px; border-top:1px dashed #cbd5e1; font-size:11px; color:#64748b;">
+         OrphanCare Children Home Management System &bull; Confidential Academic Report
+       </div>
+     </div>
+   `;
+   
+   state.currentReportCardId = reportId;
+   openModal('report-card-modal');
+ }
+
+ function getGradePoints(gradeCode) {
+   const pointsMap = {
+     'EE1': 12, 'EE2': 11, 'EE3': 10, 'EE4': 9,
+     'ME1': 8, 'ME2': 7, 'ME3': 6, 'ME4': 5,
+     'AE1': 4, 'AE2': 3, 'AE3': 2,
+     'BE1': 1, 'BE2': 0
+   };
+   return pointsMap[gradeCode] || 0;
+ }
+
+ function getOverallRemark(averageScore) {
+   if (averageScore >= 10) return 'EXCELLENT - Exceeding Expectations';
+   if (averageScore >= 8) return 'GOOD - Meeting Expectations';
+   if (averageScore >= 5) return 'FAIR - Approaching Expectations';
+   return 'NEEDS IMPROVEMENT - Below Expectations';
+ }
+
+ function printReportCard() {
+   const body = document.getElementById('report-card-body');
+   if (!body || !body.innerHTML.trim()) {
+     showToast('No report card content available to print.', 'warning');
+     return;
+   }
+   
+   const printWindow = window.open('', '_blank', 'width=850,height=900');
+   if (!printWindow) {
+     showToast('Allow popups to print report cards.', 'warning');
+     return;
+   }
+   
+   printWindow.document.write(`
+     <html>
+       <head>
+         <title>Academic Report Card</title>
+         <style>
+           body { margin: 20px; background: #fff; color: #000; font-family: Arial, sans-serif; }
+           @media print { body { margin: 0; } }
+         </style>
+       </head>
+       <body>${body.innerHTML}</body>
+     </html>
+   `);
+   printWindow.document.close();
+   printWindow.focus();
+   printWindow.print();
+ }
+
+ function renderSchoolReports() {
+   const container = document.getElementById('school-reports-list-container');
+   container.innerHTML = '';
+   
+   if (!state.db.academic_reports || state.db.academic_reports.length === 0) {
+     container.innerHTML = `
+       <div class="alert-banner alert-banner-info" style="grid-column: 1 / -1">
+         <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 00-10 10v5a2 2 0 002 2h16a2 2 0 002-2v-5a10 10 0 00-10-10h-2z"/></svg>
+         <div>
+           <h4 style="font-size:0.95rem">No Academic Reports</h4>
+           <p style="font-size:0.8rem">Click "Create Academic Report" to add a child's report card.</p>
+         </div>
+       </div>
+     `;
+     return;
+   }
+   
+   state.db.academic_reports.forEach(rep => {
+     let gradesHTML = '';
+     let grades = rep.gradesJson || rep.grades || {};
+     if (typeof grades === 'string') {
+       try { grades = JSON.parse(grades); } catch(e) { grades = {}; }
+     }
+     
+     let subjectsList = [];
+     if (Array.isArray(grades)) {
+       subjectsList = grades;
+     } else {
+       const entries = Object.entries(grades);
+       const hasNumericKeys = entries.every(([key]) => !isNaN(parseInt(key)));
+       if (hasNumericKeys) {
+         subjectsList = entries.map(([_, val]) => val);
+       } else {
+         subjectsList = entries.map(([subject, data]) => {
+           let score = 0;
+           if (typeof data === 'object' && data !== null) {
+             score = data.score || 0;
+           } else {
+             score = data;
+           }
+           return { subject, score };
+         });
+       }
+     }
+     
+     subjectsList = subjectsList.filter(item => {
+       if (typeof item === 'object' && item !== null) {
+         return item.subject && item.subject.trim() !== '';
+       }
+       return false;
+     });
+     
+     subjectsList.forEach(item => {
+       const gradeInfo = calculateCBCGrade(item.score);
+       gradesHTML += `
+         <div style="display:flex; justify-content:space-between; font-size:0.8rem; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05)">
+           <span style="text-transform: capitalize">${item.subject}</span>
+           <span style="font-weight:700; color:var(--primary)">${gradeInfo.grade || ''}</span>
+         </div>
+       `;
+     });
+     
+     const childDisplayName = formatChildName(rep.childId, getChildNameById(rep.childId));
+     const reportId = rep.id || rep.ID;
+     
+     container.innerHTML += `
+       <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:12px; background:hsla(220, 25%, 15%, 0.3)">
+         <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:8px">
+           <div>
+             <div style="font-size:0.95rem; font-weight:700">${childDisplayName}</div>
+             <div style="font-size:0.75rem; color:var(--text-muted)">${rep.term} Academic Year</div>
+           </div>
+           <div style="display:flex; gap:6px">
+             <button class="btn btn-secondary btn-icon-only" onclick="showAcademicReportView('${reportId}')" title="View Report Card">
+               <svg viewBox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0zm7 0c0-.66-.27-1.28-.7-1.77l-4.31-5.55a1 1 0 00-1.41 0L9 11.23a3 3 0 000 3.54l4.31 5.55a1 1 0 001.41 0L21 13.23c.43-.49.7-1.11.7-1.77z"/></svg>
+             </button>
+             <button class="btn btn-warning btn-icon-only staff-admin-only" onclick="editAcademicReport('${reportId}')" title="Edit Report">
+               <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+             </button>
+             <button class="btn btn-print btn-icon-only staff-admin-only" onclick="showAcademicReportView('${reportId}'); setTimeout(() => printAcademicReport('${reportId}'), 500);" title="Print Report">
+               <svg viewBox="0 0 24 24"><path d="M6 9V2h12v7m-2 11H8a2 2 0 01-2-2v-5h12v5a2 2 0 01-2 2zM6 13H4a2 2 0 01-2-2V9a2 2 0 012-2h16a2 2 0 012 2v2a2 2 0 01-2 2h-2"/></svg>
+             </button>
+             <button class="btn btn-danger btn-icon-only staff-admin-only" onclick="deleteAcademicReport('${reportId}')" title="Delete Report">
+               <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3V6zm2 3h14l-1 13H6l-1-13zm4-4h6l-1-2H9l-1 2z"/></svg>
+             </button>
+             <span class="badge badge-success">Report Card</span>
+           </div>
+         </div>
+         <div>
+           <h5 style="font-size:0.8rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px">Grade Sheet</h5>
+           ${gradesHTML}
+         </div>
+         <div style="margin-top:8px">
+           <h5 style="font-size:0.8rem; text-transform:uppercase; color:var(--text-muted); margin-bottom:4px">Teacher Remarks</h5>
+           <p style="font-size:0.78rem; font-style:italic">${rep.teacherComments || 'No comments.'}</p>
+         </div>
+       </div>
+     `;
+   });
+ }
 
 function showAddEnrollmentModal() {
   // Populate Child select dropdown
@@ -2477,25 +2983,297 @@ async function saveFeeSubmit() {
   await cloudSaveRecord('School_Fees', record, 'id');
 }
 
-async function saveAcademicReportSubmit() {
-  const childId = document.getElementById('academic-report-child-select').value;
-  const term = document.getElementById('academic-report-term').value;
-  const subject = document.getElementById('academic-report-subject').value;
-  const grade = document.getElementById('academic-report-grade').value;
-  const comments = document.getElementById('academic-report-comments').value;
+// Kenyan CBC Grading System
+function calculateCBCGrade(score) {
+  const numScore = parseFloat(score);
+  if (isNaN(numScore)) return { grade: '', level: '', points: 0 };
   
-  if (!childId || !subject) {
-    showToast('Child and Subject are required', 'danger');
+  if (numScore >= 90 && numScore <= 100) {
+    return { grade: 'EE1', level: 'AL 8', points: 8, description: 'Exceeding Expectations' };
+  } else if (numScore >= 75 && numScore <= 89) {
+    return { grade: 'EE2', level: 'AL 7', points: 7, description: 'Exceeding Expectations' };
+  } else if (numScore >= 58 && numScore <= 74) {
+    return { grade: 'ME1', level: 'AL 6', points: 6, description: 'Meeting Expectations' };
+  } else if (numScore >= 41 && numScore <= 57) {
+    return { grade: 'ME2', level: 'AL 5', points: 5, description: 'Meeting Expectations' };
+  } else if (numScore >= 31 && numScore <= 40) {
+    return { grade: 'AE1', level: 'AL 4', points: 4, description: 'Approaching Expectations' };
+  } else if (numScore >= 21 && numScore <= 30) {
+    return { grade: 'AE2', level: 'AL 3', points: 3, description: 'Approaching Expectations' };
+  } else if (numScore >= 11 && numScore <= 20) {
+    return { grade: 'BE1', level: 'AL 2', points: 2, description: 'Below Expectations' };
+  } else if (numScore >= 1 && numScore <= 10) {
+    return { grade: 'BE2', level: 'AL 1', points: 1, description: 'Below Expectations' };
+  } else {
+    return { grade: '', level: '', points: 0, description: '' };
+  }
+}
+
+function updateGradeDisplay(input) {
+  const entry = input.closest('.subject-entry');
+  const score = input.value;
+  const gradeDisplay = entry.querySelector('.academic-report-grade-display');
+  const grade = calculateCBCGrade(score);
+  if (gradeDisplay) {
+    gradeDisplay.textContent = grade.grade ? `${grade.grade} (${grade.level})` : '';
+  }
+}
+
+function addReportEntry(btn) {
+  const container = document.getElementById('academic-report-entries');
+  const entries = container.querySelectorAll('.subject-entry');
+  
+  // Update buttons for existing entry's add button to remove
+  if (btn) {
+    const currentEntry = btn.closest('.subject-entry');
+    const addBtn = currentEntry.querySelector('button[onclick*="addReportEntry"]');
+    const removeBtn = currentEntry.querySelector('button[onclick*="removeReportEntry"]');
+    if (addBtn) addBtn.style.display = 'none';
+    if (removeBtn) removeBtn.style.display = 'block';
+  }
+  
+  const entry = document.createElement('div');
+  entry.className = 'subject-entry';
+  entry.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-top: 8px';
+  entry.innerHTML = `
+    <input type="text" class="academic-report-subject form-input" placeholder="Subject name (e.g. English)" style="flex: 2">
+    <input type="number" class="academic-report-score form-input" placeholder="Score (%)" min="0" max="100" style="flex: 1" oninput="updateGradeDisplay(this)">
+    <span class="academic-report-grade-display" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); text-align: center; font-weight: 600;"></span>
+    <button type="button" class="btn btn-secondary" onclick="addReportEntry(this)" style="flex: 0 0 40px;">+</button>
+    <button type="button" class="btn btn-danger" onclick="removeReportEntry(this)" style="flex: 0 0 40px; display: none;">×</button>
+  `;
+  container.appendChild(entry);
+}
+
+function removeReportEntry(btn) {
+  const container = document.getElementById('academic-report-entries');
+  const entries = container.querySelectorAll('.subject-entry');
+  if (entries.length > 1) {
+    btn.closest('.subject-entry').remove();
+    // If only one entry remains, show add button and hide remove button
+    const remainingEntries = container.querySelectorAll('.subject-entry');
+    if (remainingEntries.length === 1) {
+      const lastEntry = remainingEntries[0];
+      const addBtn = lastEntry.querySelector('button[onclick*="addReportEntry"]');
+      const removeBtn = lastEntry.querySelector('button[onclick*="removeReportEntry"]');
+      if (addBtn) addBtn.style.display = 'block';
+      if (removeBtn) removeBtn.style.display = 'none';
+    }
+  }
+}
+
+function showAcademicReportView(reportId) {
+  // Remove any existing academic report view modals first to prevent duplication
+  const existingModal = document.getElementById('academic-report-view-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+  
+  const report = state.db.academic_reports.find(r => (r.id || r.ID) === reportId);
+  if (!report) {
+    showToast('Report not found', 'danger');
     return;
   }
   
+  const child = state.db.children.find(c => (c.id || c.ID) === report.childId);
+  const printProfile = getCurrentPrintProfile();
+  
+  const modalHtml = `
+    <div id="academic-report-view-modal" class="modal-overlay" style="display: flex; z-index: 9999;">
+      <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <h3>Academic Report Card</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-print" onclick="printAcademicReport('${reportId}')">📄 Print Report</button>
+            <button class="modal-close-btn" onclick="closeModal('academic-report-view-modal')">&times;</button>
+          </div>
+        </div>
+        <div class="modal-body" id="academic-report-print-area">
+          <div class="report-header" style="text-align: center; border-bottom: 2px solid #0d9488; padding-bottom: 20px; margin-bottom: 20px;">
+            <div style="margin-bottom: 8px;">${printProfile.logoHtml}</div>
+            <h2 style="margin: 0; color: #0d9488; font-size: 28px;">${printProfile.name}</h2>
+            <p style="margin: 4px 0; color: #64748b;">${printProfile.address}</p>
+            <p style="margin: 4px 0; color: #64748b;">Tel: ${printProfile.phone} | Email: ${printProfile.email}</p>
+            <h3 style="margin-top: 16px; color: #1e293b;">ACADEMIC REPORT CARD</h3>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px;">
+            <div><strong>Child Name:</strong> ${child ? (child.fullName || child.name || 'N/A') : 'N/A'}</div>
+            <div><strong>Term:</strong> ${report.term || 'N/A'}</div>
+            <div><strong>Date Generated:</strong> ${new Date(report.dateCreated || new Date()).toLocaleDateString()}</div>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <thead>
+              <tr style="background: #0d9488; color: white;">
+                <th style="padding: 12px; text-align: left; border: 1px solid #0d9488;">Subject</th>
+                <th style="padding: 12px; text-align: center; border: 1px solid #0d9488;">Score (%)</th>
+                <th style="padding: 12px; text-align: center; border: 1px solid #0d9488;">Grade</th>
+                <th style="padding: 12px; text-align: center; border: 1px solid #0d9488;">Level</th>
+                <th style="padding: 12px; text-align: center; border: 1px solid #0d9488;">Points</th>
+              </tr>
+            </thead>
+            <tbody id="report-grades-table">
+            </tbody>
+          </table>
+          <div style="margin-top: 20px;">
+            <h4 style="color: #0d9488; margin-bottom: 8px;">Teacher's Comments:</h4>
+            <p style="padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; min-height: 80px;">${report.teacherComments || 'No comments provided'}</p>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+            <div style="text-align: center;">
+              <div style="border-top: 1px solid #1e293b; width: 150px; margin: 0 auto; padding-top: 8px;">Class Teacher</div>
+            </div>
+            <div style="text-align: center;">
+              <div style="border: 2px dashed #64748b; width: 120px; height: 80px; display: flex; align-items: center; justify-content: center; color: #64748b;">Stamp</div>
+            </div>
+            <div style="text-align: center;">
+              <div style="border-top: 1px solid #1e293b; width: 150px; margin: 0 auto; padding-top: 8px;">Head Teacher</div>
+            </div>
+          </div>
+          <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 2px solid #0d9488; color: #64748b; font-size: 12px;">
+            This report is the property of ${printProfile.name}.
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  
+  const gradesTable = document.getElementById('report-grades-table');
+  const gradesData = report.gradesJson || report.grades || {};
+  let totalPoints = 0;
+  let subjectCount = 0;
+  let subjectsList = [];
+  
+  // Check if grades is an array or numeric-keyed object
+  if (Array.isArray(gradesData)) {
+    subjectsList = gradesData;
+  } else {
+    const entries = Object.entries(gradesData);
+    // Check if keys are numeric (like "0", "1", etc.)
+    const hasNumericKeys = entries.every(([key]) => !isNaN(parseInt(key)));
+    if (hasNumericKeys) {
+      subjectsList = entries.map(([_, val]) => val);
+    } else {
+      subjectsList = entries.map(([subject, data]) => {
+        let score = 0;
+        if (typeof data === 'object' && data !== null) {
+          score = data.score || 0;
+        } else {
+          score = data;
+        }
+        return { subject, score };
+      });
+    }
+  }
+  
+  // Filter out invalid entries
+  subjectsList = subjectsList.filter(item => {
+    if (typeof item === 'object' && item !== null) {
+      return item.subject && item.subject.trim() !== '';
+    }
+    return false;
+  });
+  
+  subjectsList.forEach(item => {
+    let gradeInfo = calculateCBCGrade(item.score);
+    totalPoints += gradeInfo.points;
+    subjectCount++;
+    
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td style="padding: 10px; border: 1px solid #e2e8f0;">${item.subject}</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">${item.score || '-'}</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">${gradeInfo.grade || '-'}</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">${gradeInfo.level || '-'}</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">${gradeInfo.points || 0}</td>
+    `;
+    gradesTable.appendChild(row);
+  });
+  
+  if (subjectCount > 0) {
+    const avgRow = document.createElement('tr');
+    avgRow.style.fontWeight = 'bold';
+    avgRow.style.background = '#f0fdf4';
+    avgRow.innerHTML = `
+      <td style="padding: 10px; border: 1px solid #e2e8f0;">Total / Average</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">-</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">-</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">Average Points</td>
+      <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">${(totalPoints / subjectCount).toFixed(1)}</td>
+    `;
+    gradesTable.appendChild(avgRow);
+  }
+}
+
+function printAcademicReport(reportId) {
+  const printArea = document.getElementById('academic-report-print-area');
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Academic Report</title>
+      <style>
+        body { font-family: 'Arial', sans-serif; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #0d9488; padding: 8px; }
+        th { background-color: #0d9488; color: white; }
+      </style>
+    </head>
+    <body>
+      ${printArea.innerHTML}
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.print();
+}
+
+async function saveAcademicReportSubmit() {
+  const childId = document.getElementById('academic-report-child-select').value;
+  const term = document.getElementById('academic-report-term').value;
+  const overallComments = document.getElementById('academic-report-comments').value;
+  
+  if (!childId) {
+    showToast('Child is required', 'danger');
+    return;
+  }
+  
+  const subjects = [];
+  const entries = document.querySelectorAll('.subject-entry');
+  
+  entries.forEach(entry => {
+    const subjectInput = entry.querySelector('.academic-report-subject');
+    const scoreInput = entry.querySelector('.academic-report-score');
+    if (subjectInput && scoreInput && subjectInput.value.trim()) {
+      subjects.push({
+        subject: subjectInput.value.trim(),
+        score: parseFloat(scoreInput.value || 0)
+      });
+    }
+  });
+  
+  if (subjects.length === 0) {
+    showToast('At least one subject is required', 'danger');
+    return;
+  }
+  
+  const grades = {};
+  subjects.forEach(s => {
+    grades[s.subject] = {
+      score: s.score,
+      ...calculateCBCGrade(s.score)
+    };
+  });
+  
   const record = {
-    id: document.getElementById('academic-report-form-id').value,
+    id: document.getElementById('academic-report-form-id').value || ('rep_' + Date.now().toString().substr(-6)),
     childId: childId,
     term: term,
-    subject: subject,
-    grade: grade,
-    comments: comments,
+    gradesJson: grades,
+    grades: grades,
+    teacherComments: overallComments,
     dateCreated: new Date().toISOString()
   };
   
@@ -3247,6 +4025,34 @@ async function saveSettingsUrl() {
   await loadDatabase();
 }
 
+async function runAutoSetupSheets() {
+  if (!state.googleSheetsUrl || state.googleSheetsUrl.trim() === '') {
+    showToast('Please save your Google Apps Script URL first!', 'warning');
+    return;
+  }
+  
+  showHUD(true, 'Running Database Auto-Setup...');
+  try {
+    const response = await fetch(`${state.googleSheetsUrl}?action=setup`, {
+      method: 'GET',
+      mode: 'cors'
+    });
+    const result = await response.json();
+    
+    if (result.success) {
+      showToast('Database setup complete! All sheets created!', 'success');
+      await loadDatabase();
+    } else {
+      throw new Error(result.error || 'Setup failed');
+    }
+  } catch (err) {
+    console.error('Auto-setup failed:', err);
+    showToast(`Auto-setup failed: ${err.message}`, 'danger');
+  } finally {
+    showHUD(false);
+  }
+}
+
 async function saveAdminOtpEmail() {
   const input = document.getElementById('settings-admin-otp-email');
   if (!input) return;
@@ -3307,10 +4113,10 @@ async function savePrintProfileSettings() {
 
 async function testConnectionAction() {
   const inputUrl = DEFAULT_GOOGLE_SHEETS_URL;
-  
+   
   showHUD(true, 'Contacting Google Apps Script...');
   try {
-    const res = await fetch(`${inputUrl}?action=testConnection`);
+    const res = await fetch(`${inputUrl}?action=testConnection`, { signal: AbortSignal.timeout(5000) });
     const data = await res.json();
     if (data.success) {
       const sheetName = data.spreadsheet || data.spreadsheetName || 'Database';
@@ -3325,6 +4131,22 @@ async function testConnectionAction() {
     updateConnectionIndicator('error', 'Sheets Connection Failed');
   } finally {
     showHUD(false);
+  }
+}
+
+// Silent connection test on startup
+async function testConnectionSilently() {
+  try {
+    const res = await fetch(`${DEFAULT_GOOGLE_SHEETS_URL}?action=testConnection`, { signal: AbortSignal.timeout(5000) });
+    const data = await res.json();
+    if (data.success) {
+      state.dbConnected = true;
+      updateConnectionIndicator('online', 'Connected to Cloud');
+    }
+  } catch(err) {
+    console.warn('Auto-connect failed (will use local data):', err);
+    state.dbConnected = false;
+    updateConnectionIndicator('offline', 'Local Mode - No Connection');
   }
 }
 
@@ -3409,109 +4231,20 @@ function showToast(message, type = 'info') {
   }, 3500);
 }
 
-// --- FULL WORKSPACE MOCK DATA GENERATOR ---
+// --- Initialize empty database ---
 function loadMockDatabase() {
   state.db = {
-    children: [
-      { id: "101", name: "Gabriel Mwangi", age: "8", gender: "Boy", entryDate: "2024-02-15", guardianName: "Lucy Mwangi", guardianPhone: "+254711223344", roomNumber: "101", bedNumber: "1", status: "Active" },
-      { id: "102", name: "Hope Amani", age: "6", gender: "Girl", entryDate: "2025-01-10", guardianName: "Social Worker", guardianPhone: "+254722556677", roomNumber: "201", bedNumber: "1", status: "Active" },
-      { id: "103", name: "David Kiprop", age: "11", gender: "Boy", entryDate: "2023-06-22", guardianName: "Joseph Kiprop", guardianPhone: "+254733445566", roomNumber: "101", bedNumber: "2", status: "Active" },
-      { id: "104", name: "Joy Kemunto", age: "9", gender: "Girl", entryDate: "2024-08-04", guardianName: "Agnes Kemunto", guardianPhone: "+254744118899", roomNumber: "201", bedNumber: "2", status: "Active" },
-      { id: "105", name: "Emanuel Njoroge", age: "13", gender: "Boy", entryDate: "2022-11-30", guardianName: "Social Services", guardianPhone: "+254755998877", roomNumber: "102", bedNumber: "1", status: "Active" }
-    ],
-    rooms: [
-      { roomNumber: "101", capacity: "4", occupancy: "2", genderType: "Boys", notes: "East wing corridor, adjacent to dining facility." },
-      { roomNumber: "102", capacity: "4", occupancy: "1", genderType: "Boys", notes: "East wing second unit, contains study lockers." },
-      { roomNumber: "201", capacity: "4", occupancy: "2", genderType: "Girls", notes: "West wing first floor, secure child-friendly gate access." },
-      { roomNumber: "202", capacity: "4", occupancy: "0", genderType: "Girls", notes: "West wing second unit, extra blank kits store." }
-    ],
-    food_inventory: [
-      { id: "fi_1", itemName: "Parboiled Rice", category: "Grains", stockIn: "100", stockOut: "85", currentStock: "15", unit: "kg", expiryDate: "2026-08-30", wastage: "0.5", notes: "Stock reordered." },
-      { id: "fi_2", itemName: "Whole Dry Beans", category: "Legumes", stockIn: "50", stockOut: "46", currentStock: "4", unit: "kg", expiryDate: "2026-10-15", wastage: "0.2", notes: "Urgent low-stock alert triggered!" },
-      { id: "fi_3", itemName: "Fresh Liquid Milk", category: "Dairy", stockIn: "60", stockOut: "30", currentStock: "30", unit: "L", expiryDate: "2026-06-01", wastage: "1.0", notes: "Stored in walk-in cold lockers." },
-      { id: "fi_4", itemName: "Fresh Cabbage Bags", category: "Veggies", stockIn: "25", stockOut: "18", currentStock: "7", unit: "kg", expiryDate: "2026-05-28", wastage: "0.4", notes: "Keep refrigerated." }
-    ],
-    daily_meals: [
-      { id: "dm_1", date: "2026-05-22", mealType: "Breakfast", plannedItems: "Fortified oatmeal milk porridges, soft boiled eggs, fresh ripe bananas", calories: 480, proteins: 18, carbs: 65, fats: 14, costPerChild: 1.45, notes: "All children checked present, high consumption logs." },
-      { id: "dm_2", date: "2026-05-22", mealType: "Lunch", plannedItems: "Steamed jasmine white rice, savory stewed green lentils, fresh shredded cabbages", calories: 620, proteins: 22, carbs: 90, fats: 10, costPerChild: 1.95, notes: "Preparation fully supervised by staff nutritionists." },
-      { id: "dm_3", date: "2026-05-22", mealType: "Dinner", plannedItems: "Hot maize meal ugali cakes, sautéed collard greens, scrambled egg bites", calories: 510, proteins: 19, carbs: 80, fats: 11, costPerChild: 1.65, notes: "Dinner served on schedule." }
-    ],
-    school_enrollment: [
-      { childId: "101", schoolName: "Highlands Elementary Academy", gradeClass: "Grade 3", rollNumber: "H-8402", transportStatus: "School Bus" },
-      { childId: "102", schoolName: "Highlands Elementary Academy", gradeClass: "Grade 1", rollNumber: "H-9104", transportStatus: "School Bus" },
-      { childId: "103", schoolName: "Highlands Elementary Academy", gradeClass: "Grade 5", rollNumber: "H-7341", transportStatus: "School Bus" },
-      { childId: "104", schoolName: "St. Jude Day School", gradeClass: "Grade 4", rollNumber: "SJ-490", transportStatus: "Walking" },
-      { childId: "105", schoolName: "St. Jude Day School", gradeClass: "Grade 7", rollNumber: "SJ-212", transportStatus: "Walking" }
-    ],
-    school_fees: [
-      { id: "sf_1", childId: "101", amountDue: 350, amountPaid: 350, balance: 0, dueDate: "2026-06-01", status: "Paid" },
-      { id: "sf_2", childId: "102", amountDue: 350, amountPaid: 200, balance: 150, dueDate: "2026-06-01", status: "Pending" },
-      { id: "sf_3", childId: "103", amountDue: 400, amountPaid: 400, balance: 0, dueDate: "2026-06-01", status: "Paid" },
-      { id: "sf_4", childId: "104", amountDue: 280, amountPaid: 0, balance: 280, dueDate: "2026-06-01", status: "Pending" },
-      { id: "sf_5", childId: "105", amountDue: 300, amountPaid: 300, balance: 0, dueDate: "2026-06-01", status: "Paid" }
-    ],
-    academic_reports: [
-      { id: "ar_1", childId: "101", term: "Term 1", gradesJson: { math: "A", english: "A-", science: "B+", humanities: "A" }, teacherComments: "Gabriel exhibits exceptional visual arts capabilities and leads class teamwork.", dateCreated: "2026-04-10" },
-      { id: "ar_2", childId: "103", term: "Term 1", gradesJson: { math: "B-", english: "B", science: "A", humanities: "B+" }, teacherComments: "David is scoring exceptionally high in sciences. Recommend extra reading.", dateCreated: "2026-04-10" }
-    ],
-    medical_records: [
-      {
-        childId: "101",
-        bloodType: "A+",
-        allergies: "Roasted Peanuts (Severe anaphylaxis risks)",
-        chronicConditions: "Mild Childhood Asthma",
-        vaccinationsJson: [
-          { name: "BCG", status: "Taken" },
-          { name: "Polio OPV", status: "Taken" },
-          { name: "MMR Vaccine", status: "Taken" },
-          { name: "Hepatitis B", status: "Due" }
-        ],
-        doctorVisitsJson: [
-          { date: "2026-05-10", doctor: "Andrew Ochieng", diagnosis: "Routine asthma lung inspection & check", prescription: "Inhaler refill, 1 puff every 12 hrs if chest tightness" }
-        ],
-        dispensedMedsJson: []
-      },
-      {
-        childId: "102",
-        bloodType: "O+",
-        allergies: "None",
-        chronicConditions: "None",
-        vaccinationsJson: [
-          { name: "BCG", status: "Taken" },
-          { name: "Polio OPV", status: "Taken" },
-          { name: "MMR Vaccine", status: "Taken" }
-        ],
-        doctorVisitsJson: [],
-        dispensedMedsJson: []
-      },
-      {
-        childId: "103",
-        bloodType: "B-",
-        allergies: "Dairy Lactose (Triggers hives)",
-        chronicConditions: "None",
-        vaccinationsJson: [
-          { name: "BCG", status: "Taken" },
-          { name: "Polio OPV", status: "Taken" },
-          { name: "MMR Vaccine", status: "Taken" }
-        ],
-        doctorVisitsJson: [
-          { date: "2026-04-22", doctor: "Sarah Mbalu", diagnosis: "Mild ear canal itch & wax blockages", prescription: "Wax-dissolving drops, 2 drops daily for 5 days" }
-        ],
-        dispensedMedsJson: []
-      }
-    ],
-    finances: [
-      { id: "tr_1", date: "2026-05-20", type: "Income", category: "Donations", amount: "5000", description: "Direct grant from Rotary Global Club for school tuitions", allocatedTo: "School Fees" },
-      { id: "tr_2", date: "2026-05-21", type: "Expense", category: "Food", amount: "480", description: "Bulk replenishment order of dry beans, rice, and cold shelf milk bags", allocatedTo: "Food" },
-      { id: "tr_3", date: "2026-05-21", type: "Expense", category: "School Fees", amount: "850", description: "Term 2 tuition batch clearance payments for Academy kids", allocatedTo: "School Fees" },
-      { id: "tr_4", date: "2026-05-22", type: "Income", category: "Donations", amount: "1200", description: "Recurring monthly sponsorship by Dr. David & Family", allocatedTo: "General" }
-    ],
-    donations: [
-      { id: "dn_1", donorName: "Rotary Global Club", donorEmail: "grants@rotaryglobal.org", date: "2026-05-20", amount: "5000", donationType: "One-time", allocatedTo: "School Fees", thanked: "Yes" },
-      { id: "dn_2", donorName: "Dr. David & Family", donorEmail: "david@careclinic.org", date: "2026-05-22", amount: "1200", donationType: "Recurring", allocatedTo: "General", thanked: "Yes" }
-    ],
-    app_settings: [
-      { key: "connectionUrl", value: "" }
-    ]
+    children: [],
+    rooms: [],
+    food_inventory: [],
+    daily_meals: [],
+    school_enrollment: [],
+    school_fees: [],
+    academic_reports: [],
+    medical_records: [],
+    finances: [],
+    donations: [],
+    app_settings: [],
+    users: []
   };
 }

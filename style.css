@@ -383,6 +383,17 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 4px 12px var(--primary-glow);
 }
 
+.btn-print {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.btn-print:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(59, 130, 246, 0.4);
+}
+
 .btn-primary:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 18px var(--primary-glow);
@@ -1227,7 +1238,147 @@ body.light-theme .app-table tbody tr:hover {
   stroke-width: 2;
 }
 
-/* Loading HUD Overlay */
+/* Loading Animation Screen */
+#startup-loader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #070a10 0%, #090d16 100%);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.4s ease, visibility 0.4s ease;
+}
+
+#startup-loader.fade-out {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.loader-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.loader-logo {
+  width: 72px;
+  height: 72px;
+  background: var(--primary);
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  color: #fff;
+  box-shadow: 0 10px 30px var(--primary-glow);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.9; }
+}
+
+.loader-spinner {
+  width: 50px;
+  height: 50px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loader-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: 0.5px;
+}
+
+/* Performance Optimizations for Mobile */
+@media (max-width: 768px) {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  .metric-card, .chart-card {
+    transition: none;
+  }
+  
+  .btn, .nav-item a {
+    transition: none;
+  }
+  
+  .app-table td, .app-table th {
+    padding: 10px 12px;
+  }
+  
+  .table-container, .chart-card {
+    border-radius: 12px;
+  }
+  
+  .login-card {
+    padding: 28px 20px;
+    border-radius: 18px;
+  }
+  
+  .modal-content {
+    border-radius: 16px;
+  }
+  
+  /* Reduce backdrop-filter on mobile for performance */
+  .sidebar, .login-card, .modal-content, .metric-card, .chart-card, .table-container {
+    backdrop-filter: none;
+    background: rgba(13, 20, 30, 0.95);
+  }
+  
+  body.light-theme .sidebar, 
+  body.light-theme .login-card,
+  body.light-theme .modal-content,
+  body.light-theme .metric-card, 
+  body.light-theme .chart-card, 
+  body.light-theme .table-container {
+    background: rgba(240, 240, 245, 0.95);
+  }
+}
+
+/* Reduce motion for users who prefer */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Critical rendering path optimizations */
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: flex;
+}
+
+/* Render optimization for large tables */
+.app-table tbody {
+  will-change: transform;
+}
+
+/* Hardware acceleration for animations */
+.btn, .metric-card, .chart-card, .nav-item a {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Optimize scroll performance */
+.main-content, .modal-body, .nav-links {
+  -webkit-overflow-scrolling: touch;
+}
 #loading-hud {
   position: fixed;
   top: 0;
@@ -1553,4 +1704,30 @@ body.light-theme .app-table tbody tr:hover {
     max-height: none !important;
     overflow: visible !important;
   }
+}
+
+/* Academic Report Table Styles */
+#academic-report-print-area table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  table-layout: fixed;
+}
+
+#academic-report-print-area th {
+  background: #0d9488;
+  color: white;
+  padding: 12px;
+  text-align: center;
+  border: 1px solid #0d9488;
+}
+
+#academic-report-print-area td {
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+#academic-report-print-area td:first-child {
+  text-align: left;
 }
