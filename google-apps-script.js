@@ -37,6 +37,7 @@
 // ─────────────────────────────────────────────────────────────
 
 const ADMIN_EMAIL = "theesquire2020@gmail.com";
+const ORPHANAGE_NAME = "OrphanCare Children Home"; // Change this to your orphanage's name
 const CACHE_TTL   = 120;            // Cache lifetime in seconds (2 minutes)
 const CACHE_PFX   = "OMS_V4_";     // Cache key namespace — bump version to bust all caches
 const LOW_STOCK_THRESHOLD = 10;     // Units below this trigger a low-stock email alert
@@ -1054,7 +1055,7 @@ function batchGetCache(sheetNames) {
     for (const name of sheetNames) {
       const val = result[CACHE_PFX + name];
       if (!val) return null;                      // Any miss → full reload
-      data[name.toLowerCase()] = JSON.parse(val);
+      data[name] = JSON.parse(val);
     }
     return data;
   } catch (_) { return null; }
@@ -1172,7 +1173,7 @@ OrphanCare Security Engine`;
 function buildDonorThankYouEmail(payload) {
   return `Dear ${payload.donorName || "Valued Donor"},
 
-On behalf of every child at OrphanCare, we extend our deepest gratitude for your generous contribution.
+On behalf of every child at ${ORPHANAGE_NAME}, we extend our deepest gratitude for your generous contribution.
 
   Donation Amount : ${payload.amount || "—"}
   Donation Type   : ${payload.donationType || "—"}
@@ -1182,7 +1183,7 @@ On behalf of every child at OrphanCare, we extend our deepest gratitude for your
 Your gift directly funds warm meals, education, medical care, and a safe home for our children.
 
 With heartfelt thanks,
-The OrphanCare Team
+The ${ORPHANAGE_NAME} Team
 ────────────────────────────────────
 This is an automated receipt. Retain for tax purposes.`;
 }

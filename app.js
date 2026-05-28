@@ -62,7 +62,7 @@ let state = {
   }
 };
 
-const DEFAULT_GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzFw5la-7ApmOFG4q-jBcNm1030MfxnLVAzU5ymx8WUMRyWIgzdPSki3B9SgM3CxA9e/exec';
+const DEFAULT_GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyuNtP-eiaK5Y9VaYZEFD4dSAD47JE04N-PxQ6YuhAPGxnjRgokd9s0M2MFixMbNd52/exec';
 const DEFAULT_ADMIN_OTP_EMAIL = 'theesquire2020@gmail.com';
 const DEFAULT_PRINT_PROFILE = {
   name: 'OrphanCare Children Home',
@@ -97,6 +97,47 @@ function getBackendSheetName(frontendSheetKey) {
     if (frontend === frontendSheetKey) return backend;
   }
   return frontendSheetKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()).replace(/ /g, '_');
+}
+
+function updateAllLogos() {
+  const logoValue = (state.printProfile.logo || DEFAULT_PRINT_PROFILE.logo || '❤').toString();
+  const nameValue = (state.printProfile.name || DEFAULT_PRINT_PROFILE.name || 'OrphanCare').toString();
+  
+  // Update startup loader logo
+  const loaderLogo = document.querySelector('.loader-logo');
+  if (loaderLogo) {
+    if (logoValue.startsWith('http://') || logoValue.startsWith('https://')) {
+      loaderLogo.innerHTML = `<img src="${logoValue}" alt="Logo" style="width: 80px; height:80px; object-fit:contain;">`;
+    } else {
+      loaderLogo.innerHTML = logoValue;
+    }
+  }
+  
+  // Update login form logo
+  const loginLogo = document.querySelector('#login-overlay .logo-icon');
+  if (loginLogo) {
+    if (logoValue.startsWith('http://') || logoValue.startsWith('https://')) {
+      loginLogo.innerHTML = `<img src="${logoValue}" alt="Logo" style="width: 60px; height:60px; object-fit:contain;">`;
+    } else {
+      loginLogo.innerHTML = logoValue;
+    }
+  }
+  
+  // Update sidebar logo
+  const sidebarLogo = document.getElementById('sidebar-logo-icon');
+  if (sidebarLogo) {
+    if (logoValue.startsWith('http://') || logoValue.startsWith('https://')) {
+      sidebarLogo.innerHTML = `<img src="${logoValue}" alt="Logo" style="width: 40px; height:40px; object-fit:contain;">`;
+    } else {
+      sidebarLogo.innerHTML = logoValue;
+    }
+  }
+  
+  // Update sidebar name
+  const sidebarName = document.getElementById('sidebar-logo-name');
+  if (sidebarName) {
+    sidebarName.innerText = nameValue;
+  }
 }
 
 function getCurrentPrintProfile() {
@@ -225,6 +266,7 @@ function initApp() {
      }
    }
    setPrintProfileInputs(getCurrentPrintProfile());
+   updateAllLogos();
    
    // Load saved currency settings
    const savedCurrency = localStorage.getItem('oms_display_currency') || 'KES';
@@ -255,65 +297,72 @@ function initApp() {
      document.getElementById('settings-secondary-hex').innerText = savedSecondary.toUpperCase();
    }
    
-// Set up event listeners
+   // Set up event listeners
    setupEventListeners();
    
-    // Attempt to connect to Google Sheets immediately with timeout
-    async function connectAndLoad() {
-      try {
-        showHUD(true, 'Connecting to cloud database...');
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-        
-        const response = await fetch(`${DEFAULT_GOOGLE_SHEETS_URL}?action=readAll`, {
-          mode: 'cors',
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        
-        const result = await response.json();
-        
-        if (result.success && result.data) {
-          state.db = {
-            children: [],
-            rooms: [],
-            food_inventory: [],
-            daily_meals: [],
-            school_enrollment: [],
-            school_fees: [],
-            academic_reports: [],
-            medical_records: [],
-            finances: [],
-            donations: [],
-            app_settings: [],
-            users: []
-          };
-          
-          for (let sheetName in result.data) {
-            const frontendKey = getFrontendSheetKey(sheetName);
-            state.db[frontendKey] = normalizeData(frontendKey, result.data[sheetName]);
-          }
-          state.dbConnected = true;
-          applySheetSettings();
-          updateConnectionIndicator('online', 'Connected to Cloud');
-          console.log('Connected to Google Sheets successfully');
-        } else {
-          throw new Error(result.error || 'Unknown database error');
-        }
-      } catch (err) {
-        console.error("Failed to connect to Google Sheets:", err);
-        loadMockDatabase();
-        state.dbConnected = false;
-        updateConnectionIndicator('error', 'Connection Failed');
-      }
-      
-      showHUD(false);
-      showLoginScreen();
-    }
-    
-    // Start connection attempt - MUST wait for it
-    connectAndLoad();
+   // Show login screen FIRST, immediately!
+   const startupLoader = document.getElementById('startup-loader');
+   if (startupLoader) {
+     startupLoader.classList.add('fade-out');
+   }
+   showLoginScreen();
+   
+   // Now connect to Google Sheets in the background
+   async function connectAndLoad() {
+     try {
+       showHUD(true, 'Connecting to cloud database...');
+       
+       const controller = new AbortController();
+       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+       
+       const response = await fetch(`${state.googleSheetsUrl}?action=readAll`, {
+         mode: 'cors',
+         signal: controller.signal
+       });
+       clearTimeout(timeoutId);
+       
+       const result = await response.json();
+       
+       if (result.success && result.data) {
+         state.db = {
+           children: [],
+           rooms: [],
+           food_inventory: [],
+           daily_meals: [],
+           school_enrollment: [],
+           school_fees: [],
+           academic_reports: [],
+           medical_records: [],
+           finances: [],
+           donations: [],
+           app_settings: [],
+           users: []
+         };
+         
+         for (let sheetName in result.data) {
+           const frontendKey = getFrontendSheetKey(sheetName);
+           state.db[frontendKey] = normalizeData(frontendKey, result.data[sheetName]);
+         }
+         state.dbConnected = true;
+         applySheetSettings();
+         updateConnectionIndicator('online', 'Connected to Cloud');
+         console.log('Connected to Google Sheets successfully');
+         showToast('Connected to cloud database!', 'success');
+       } else {
+         throw new Error(result.error || 'Unknown database error');
+       }
+     } catch (err) {
+       console.error("Failed to connect to Google Sheets:", err);
+       loadMockDatabase();
+       state.dbConnected = false;
+       updateConnectionIndicator('error', 'Connection Failed');
+       showToast('Working in offline mode', 'info');
+     }
+     
+     showHUD(false);
+   }
+   
+   connectAndLoad(); // Load in background without blocking
  }
 
 // --- SECURE AUTHENTICATION FLOWS (Web Crypto SHA-256) ---
@@ -1645,31 +1694,128 @@ function renderDashboardTab() {
     return stock < 10; // Simple low stock threshold
   }).length;
   
-  // Render metrics HTML
-  document.getElementById('db-metric-total-children').innerText = totalKids;
-  document.getElementById('db-metric-occupancy').innerText = `${occupancyRate}%`;
+  // Render metrics HTML with conditional colors
+  const totalKidsEl = document.getElementById('db-metric-total-children');
+  const occupancyEl = document.getElementById('db-metric-occupancy');
+  const feesEl = document.getElementById('db-metric-fees');
+  const stockEl = document.getElementById('db-metric-stock');
+
+  // Remove existing color classes first
+  [totalKidsEl, occupancyEl, feesEl, stockEl].forEach(el => {
+    el.classList.remove('metric-value-green', 'metric-value-yellow', 'metric-value-red', 'metric-value-blue');
+  });
+
+  // Total children: green (good)
+  totalKidsEl.innerText = totalKids;
+  totalKidsEl.classList.add('metric-value-green');
+
+  // Occupancy rate: red if <30%, yellow if 30-60%, green if >60%
+  occupancyEl.innerText = `${occupancyRate}%`;
+  if (occupancyRate < 30) {
+    occupancyEl.classList.add('metric-value-red');
+  } else if (occupancyRate < 60) {
+    occupancyEl.classList.add('metric-value-yellow');
+  } else {
+    occupancyEl.classList.add('metric-value-green');
+  }
+
+  // Fees: red if >0 (outstanding), green if 0
+  feesEl.innerText = formatCurrency(pendingFees);
+  if (pendingFees > 0) {
+    feesEl.classList.add('metric-value-red');
+  } else {
+    feesEl.classList.add('metric-value-green');
+  }
+
+  // Low stock: red if >0, green if 0
+  stockEl.innerText = lowStockCount;
+  if (lowStockCount > 0) {
+    stockEl.classList.add('metric-value-red');
+  } else {
+    stockEl.classList.add('metric-value-green');
+  }
+
   document.getElementById('db-metric-occupancy-sub').innerText = `${occupiedBeds} / ${totalBeds} Beds Occupied`;
-  document.getElementById('db-metric-fees').innerText = formatCurrency(pendingFees);
-  document.getElementById('db-metric-stock').innerText = lowStockCount;
   
   // Render Dashboard Charts with requestAnimationFrame for performance
   requestAnimationFrame(() => {
     renderDashboardCharts();
   });
   
-  // Load Quick Activity Feed (Chores & Incidents merged)
+  // Load Quick Activity Feed with real database entries
   const feedList = document.getElementById('dashboard-feed-list');
   feedList.innerHTML = '';
   
-  // Mock feeds from financial and logistics logs
-  const activityItems = [
-    { title: "Weekly inventory count completed", date: "Today", icon: "📦", category: "Staff Operations" },
-    { title: "Dr. visits recorded for Clinic records", date: "Yesterday", icon: "🩺", category: "Medical Clinic" },
-    { title: "School fees batch payments synced", date: "2 days ago", icon: "💸", category: "Finances" },
-    { title: "New donation registered ($1,500 by Global Help)", date: "3 days ago", icon: "💖", category: "Donations" }
-  ];
+  const activityItems = [];
   
-  activityItems.forEach(act => {
+  // Add children entries
+  state.db.children.forEach(child => {
+    const childName = getChildNameById(child.ID || child.id);
+    activityItems.push({
+      title: `${childName} enrolled at orphanage`,
+      date: child.EntryDate || child.entryDate || 'Unknown',
+      icon: "👶",
+      category: "Home Logistics"
+    });
+  });
+  
+  // Add donation entries
+  state.db.donations.forEach(donation => {
+    const donorName = donation.DonorName || donation.donorName || 'Anonymous';
+    const amount = formatCurrency(parseFloat(donation.Amount || donation.amount || 0));
+    activityItems.push({
+      title: `${amount} received from ${donorName}`,
+      date: donation.Date || donation.date || 'Unknown',
+      icon: "💖",
+      category: "Donations"
+    });
+  });
+  
+  // Add financial transactions
+  state.db.finances.forEach(transaction => {
+    const flowType = (transaction.Type || transaction.type || '').toUpperCase();
+    activityItems.push({
+      title: `${flowType} transaction: ${transaction.Description || transaction.description || 'No description'}`,
+      date: transaction.Date || transaction.date || 'Unknown',
+      icon: flowType === 'INCOME' ? "💸" : "💳",
+      category: "Finances"
+    });
+  });
+  
+  // Add school fees entries
+  state.db.school_fees.forEach(fee => {
+    const childName = getChildNameById(fee.ChildId || fee.childId);
+    activityItems.push({
+      title: `School fee for ${childName}: ${formatCurrency(parseFloat(fee.AmountDue || fee.amountDue || 0))}`,
+      date: fee.DueDate || fee.dueDate || 'Unknown',
+      icon: "📚",
+      category: "Schooling"
+    });
+  });
+  
+  // Add food inventory entries
+  state.db.food_inventory.forEach(item => {
+    activityItems.push({
+      title: `${item.ItemName || item.itemName || 'Item'}: ${item.CurrentStock || item.currentStock || 0} units in stock`,
+      date: item.LastModified || 'Unknown',
+      icon: "🍎",
+      category: "Food & Nutrition"
+    });
+  });
+  
+  // Sort activities by date (newest first)
+  activityItems.sort((a, b) => {
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    if (isNaN(dateA)) return 1;
+    if (isNaN(dateB)) return -1;
+    return dateB - dateA;
+  });
+  
+  // Take first 8 items
+  const recentItems = activityItems.slice(0, 8);
+  
+  recentItems.forEach(act => {
     feedList.innerHTML += `
       <div style="display:flex; align-items:center; gap:12px; padding:12px; border-bottom:1px solid var(--border-color)">
         <div style="font-size:1.5rem">${act.icon}</div>
@@ -2541,6 +2687,10 @@ function renderSchoolFees() {
   const table = document.getElementById('school-fees-table-body');
   table.innerHTML = '';
   
+  let totalDue = 0;
+  let totalPaid = 0;
+  let totalBalance = 0;
+  
   state.db.school_fees.forEach(fee => {
     const actionButtons = `
       <button class="btn btn-secondary btn-icon-only staff-admin-only" onclick="editFeeModal('${fee.id}')" title="Log Payment">
@@ -2548,15 +2698,22 @@ function renderSchoolFees() {
       </button>
     `;
     
+    const amountDue = parseFloat(fee.amountDue || 0);
+    const amountPaid = parseFloat(fee.amountPaid || 0);
     const balance = parseFloat(fee.balance || 0);
+    
+    totalDue += amountDue;
+    totalPaid += amountPaid;
+    totalBalance += balance;
+    
     const badge = balance === 0 ? 'badge-success' : 'badge-warning';
     const statusText = balance === 0 ? 'Fully Paid' : 'Outstanding Balance';
     
     table.innerHTML += `
       <tr>
         <td>${formatChildName(fee.childId, getChildNameById(fee.childId))}</td>
-        <td>${formatCurrency(fee.amountDue)}</td>
-        <td>${formatCurrency(fee.amountPaid)}</td>
+        <td>${formatCurrency(amountDue)}</td>
+        <td>${formatCurrency(amountPaid)}</td>
         <td><strong style="color: ${balance > 0 ? 'var(--warning)' : 'var(--success)'}">${formatCurrency(balance)}</strong></td>
         <td>${fee.dueDate}</td>
         <td><span class="badge ${badge}">${statusText}</span></td>
@@ -2568,6 +2725,17 @@ function renderSchoolFees() {
       </tr>
     `;
   });
+  
+  // Add totals row
+  table.innerHTML += `
+    <tr style="background: var(--primary-glow); font-weight: bold;">
+      <td colspan="2" style="text-align: right;">Total:</td>
+      <td>${formatCurrency(totalDue)}</td>
+      <td>${formatCurrency(totalPaid)}</td>
+      <td><strong style="color: ${totalBalance > 0 ? 'var(--warning)' : 'var(--success)'}">${formatCurrency(totalBalance)}</strong></td>
+      <td colspan="2"></td>
+    </tr>
+  `;
   
   applyRoleBasedVisibility();
 }
@@ -3592,10 +3760,20 @@ function renderFinanceLedger() {
   const ledgerTable = document.getElementById('finance-ledger-table-body');
   ledgerTable.innerHTML = '';
   
+  let totalIncome = 0;
+  let totalExpenses = 0;
+  
   state.db.finances.forEach(fin => {
     const isIncome = fin.type === 'Income';
+    const amount = parseFloat(fin.amount || 0);
     const amountColor = isIncome ? 'var(--success)' : 'var(--danger)';
     const amountSign = isIncome ? '+' : '-';
+    
+    if (isIncome) {
+      totalIncome += amount;
+    } else {
+      totalExpenses += amount;
+    }
     
     const actionButtons = `
       <button class="btn btn-secondary btn-icon-only staff-admin-only" onclick="viewReceipt('${fin.id}')" title="Audit Receipt">
@@ -3611,7 +3789,7 @@ function renderFinanceLedger() {
         <td>${fin.date}</td>
         <td><span class="badge ${isIncome ? 'badge-success' : 'badge-danger'}">${fin.type}</span></td>
         <td><strong>${fin.category}</strong></td>
-        <td><strong style="color:${amountColor}">${amountSign}${formatCurrency(fin.amount)}</strong></td>
+        <td><strong style="color:${amountColor}">${amountSign}${formatCurrency(amount)}</strong></td>
         <td>${fin.description}</td>
         <td><span class="badge badge-info">${fin.allocatedTo || 'Unallocated'}</span></td>
         <td>
@@ -3622,6 +3800,27 @@ function renderFinanceLedger() {
       </tr>
     `;
   });
+  
+  const netBalance = totalIncome - totalExpenses;
+  
+  // Add totals rows
+  ledgerTable.innerHTML += `
+    <tr style="background: rgba(74, 222, 128, 0.1);">
+      <td colspan="3" style="text-align: right; font-weight: bold;">Total Income:</td>
+      <td><strong style="color:var(--success)">${formatCurrency(totalIncome)}</strong></td>
+      <td colspan="3"></td>
+    </tr>
+    <tr style="background: rgba(248, 113, 113, 0.1);">
+      <td colspan="3" style="text-align: right; font-weight: bold;">Total Expenses:</td>
+      <td><strong style="color:var(--danger)">${formatCurrency(totalExpenses)}</strong></td>
+      <td colspan="3"></td>
+    </tr>
+    <tr style="background: var(--primary-glow); font-weight: bold;">
+      <td colspan="3" style="text-align: right; font-weight: bold;">Net Balance:</td>
+      <td><strong style="color:${netBalance >= 0 ? 'var(--success)' : 'var(--danger)'}">${netBalance >= 0 ? '+' : ''}${formatCurrency(netBalance)}</strong></td>
+      <td colspan="3"></td>
+    </tr>
+  `;
   
   applyRoleBasedVisibility();
 }
@@ -3702,17 +3901,25 @@ async function saveTransactionSubmit() {
 
 function receiptIdentityHeader(title, subtitle = '') {
   const profile = getCurrentPrintProfile();
+  let logoHtml;
+  if (profile.logo.startsWith('http://') || profile.logo.startsWith('https://')) {
+    logoHtml = `<img src="${profile.logo}" alt="Logo" style="width:60px;height:60px;object-fit:contain;display:block;">`;
+  } else {
+    logoHtml = `<div style="width:60px;height:60px;border-radius:8px;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700">${profile.logo}</div>`;
+  }
   return `
-    <div style="display:flex; gap:12px; align-items:flex-start; border-bottom:2px dashed #333; padding-bottom:12px; margin-bottom:14px">
-      <div style="width:44px;height:44px;border-radius:10px;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700">${profile.logo}</div>
-      <div style="flex:1">
-        <h2 style="font-size:1rem; margin:0 0 2px 0; color:#111">${profile.name}</h2>
-        <p style="font-size:0.75rem; margin:0; color:#333">${profile.address}</p>
-        <p style="font-size:0.72rem; margin:2px 0 0; color:#555">Tel: ${profile.phone} | Email: ${profile.email}</p>
+    <div style="display:flex; gap:14px; align-items:flex-start; border-bottom:2px dashed #000; padding-bottom:12px; margin-bottom:14px">
+      <div style="flex-shrink:0">
+        ${logoHtml}
       </div>
-      <div style="text-align:right">
-        <div style="font-size:0.78rem; font-weight:700; color:#111">${title}</div>
-        <div style="font-size:0.7rem; color:#666">${subtitle}</div>
+      <div style="flex:1">
+        <h2 style="font-size:1rem; margin:0 0 2px 0; color:#000; letter-spacing:1px">${profile.name}</h2>
+        <p style="font-size:0.72rem; margin:0; color:#333; line-height:1.3">${profile.address}</p>
+        <p style="font-size:0.68rem; margin:4px 0 0; color:#555">Tel: ${profile.phone} | Email: ${profile.email}</p>
+      </div>
+      <div style="text-align:right; flex-shrink:0">
+        <div style="font-size:0.75rem; font-weight:700; color:#000; text-transform:uppercase">${title}</div>
+        <div style="font-size:0.68rem; color:#666; margin-top:2px">${subtitle}</div>
       </div>
     </div>
   `;
@@ -3722,40 +3929,71 @@ function viewReceipt(transactionId) {
   const transaction = state.db.finances.find(f => f.id.toString() === transactionId.toString());
   if (!transaction) return;
   
+  const profile = getCurrentPrintProfile();
   const modalBody = document.getElementById('receipt-view-modal-body');
   modalBody.innerHTML = `
-    <div class="printable-receipt">
-      ${receiptIdentityHeader('ORPHANAGE AUDIT BILL', 'OMS System Transaction Record')}
-      <div class="receipt-row">
-        <span>Transaction ID:</span>
-        <strong>${transaction.id}</strong>
+    <div class="printable-receipt" style="
+      font-family: 'Courier New', Courier, monospace;
+      background: #fff;
+      max-width: 320px;
+      margin: 0 auto;
+      padding: 20px 16px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    ">
+      <div style="text-align:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px dashed #000">
+        <div style="font-size:1.1rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-bottom:4px">
+          ${profile.name}
+        </div>
+        <div style="font-size:0.68rem; color:#444; line-height:1.4; margin-bottom:8px">
+          ${profile.address}<br>
+          Tel: ${profile.phone} | Email: ${profile.email}
+        </div>
+        <div style="width:40px; height:40px; margin:0 auto; display:flex; align-items:center; justify-content:center">
+          ${profile.logo.startsWith('http') 
+            ? `<img src="${profile.logo}" style="width:40px; height:40px; object-fit:contain">` 
+            : `<div style="font-size:24px">${profile.logo}</div>`}
+        </div>
       </div>
-      <div class="receipt-row">
-        <span>Date Logged:</span>
-        <strong>${transaction.date}</strong>
+
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.72rem">
+        <span>TRANS ID:</span>
+        <span style="font-weight:700">${transaction.id}</span>
       </div>
-      <div class="receipt-row">
-        <span>Ledger Flow:</span>
-        <strong>${transaction.type.toUpperCase()}</strong>
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.72rem">
+        <span>DATE LOGGED:</span>
+        <span style="font-weight:700">${transaction.date}</span>
       </div>
-      <div class="receipt-row">
-        <span>Category:</span>
-        <strong>${transaction.category}</strong>
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.72rem">
+        <span>FLOW TYPE:</span>
+        <span style="font-weight:700; text-transform:uppercase">${transaction.type}</span>
       </div>
-      <div class="receipt-row">
-        <span>Description:</span>
-        <strong>${transaction.description}</strong>
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.72rem">
+        <span>CATEGORY:</span>
+        <span style="font-weight:700">${transaction.category}</span>
       </div>
-      <div class="receipt-row">
-        <span>Allocated Fund:</span>
-        <strong>${transaction.allocatedTo || 'General Operations'}</strong>
+      
+      <div style="margin:10px 0; padding:8px 0; border-top:1px dashed #000; border-bottom:1px dashed #000">
+        <div style="font-size:0.72rem; line-height:1.5">
+          DESCRIPTION:<br>
+          <span style="font-weight:700; display:block; margin-top:2px">${transaction.description}</span>
+        </div>
       </div>
-      <div class="receipt-total">
-        <span>AUDITED VALUE:</span>
+      
+      <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.72rem">
+        <span>ALLOCATED TO:</span>
+        <span style="font-weight:700">${transaction.allocatedTo || 'General Operations'}</span>
+      </div>
+      
+      <div style="display:flex; justify-content:space-between; margin-top:12px; padding-top:8px; border-top:2px solid #000; font-size:0.9rem; font-weight:700">
+        <span>TOTAL:</span>
         <span>${formatCurrency(transaction.amount)}</span>
       </div>
-      <div style="text-align:center; font-size:0.7rem; color:#888; margin-top:20px; border-top:1px dashed #333; padding-top:10px">
-        This is an autogenerated, tamper-proof audit bill secured by App settings credentials.
+      
+      <div style="text-align:center; font-size:0.65rem; color:#666; margin-top:18px; padding-top:12px; border-top:1px dashed #000; line-height:1.5">
+        This is an autogenerated, tamper-proof audit record<br>
+        secured by OrphanCare Management System credentials
       </div>
     </div>
   `;
@@ -3838,15 +4076,20 @@ function renderDonorsTab() {
   const donationsTable = document.getElementById('donor-feed-table-body');
   donationsTable.innerHTML = '';
   
+  let totalDonations = 0;
+  
   state.db.donations.forEach(don => {
     const thankBtn = don.thanked === 'Yes' 
       ? '<span class="badge badge-success">Thank Note Sent</span>' 
       : `<button class="btn btn-secondary staff-admin-only" style="padding:4px 8px; font-size:0.75rem" onclick="sendThankNote('${don.id}')">Send Thank Note</button>`;
+    
+    const amount = parseFloat(don.amount || 0);
+    totalDonations += amount;
       
     donationsTable.innerHTML += `
       <tr>
         <td><strong>${don.donorName}</strong></td>
-        <td>${formatCurrency(don.amount)}</td>
+        <td>${formatCurrency(amount)}</td>
         <td><span class="badge badge-info">${don.donationType}</span></td>
         <td>${don.allocatedTo}</td>
         <td>${don.date}</td>
@@ -3854,6 +4097,15 @@ function renderDonorsTab() {
       </tr>
     `;
   });
+  
+  // Add totals row
+  donationsTable.innerHTML += `
+    <tr style="background: var(--primary-glow); font-weight: bold;">
+      <td colspan="1" style="text-align: right;">Total Donations:</td>
+      <td>${formatCurrency(totalDonations)}</td>
+      <td colspan="4"></td>
+    </tr>
+  `;
   
   applyRoleBasedVisibility();
 }
@@ -4108,6 +4360,7 @@ async function savePrintProfileSettings() {
   }, 'ID');
 
   setPrintProfileInputs(getCurrentPrintProfile());
+  updateAllLogos();
   showToast('Print identity updated successfully.', 'success');
 }
 

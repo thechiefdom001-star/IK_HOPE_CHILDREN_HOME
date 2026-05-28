@@ -483,6 +483,23 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--primary);
 }
 
+/* Metric value color classes for conditional styling */
+.metric-value-green {
+  color: #10b981 !important;
+}
+
+.metric-value-yellow {
+  color: #f59e0b !important;
+}
+
+.metric-value-red {
+  color: #ef4444 !important;
+}
+
+.metric-value-blue {
+  color: #3b82f6 !important;
+}
+
 .metric-info h3 {
   font-size: 0.8rem;
   color: var(--text-muted);
