@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>OrphanCare - Premium Orphanage Management System</title>
   
   <!-- SEO & Accessibility Metadata -->
@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="style.css">
   
   <!-- Chart.js for Gorgeous Interactive Visualizations -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 </head>
 <body>
   <!-- Loading Animation Screen -->
@@ -88,8 +88,8 @@
          <div class="alert-banner alert-banner-info">
            <svg viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
            <div style="text-align:left">
-             <h4 style="font-size:0.9rem">Security Code Dispatched</h4>
-             <p style="font-size:0.75rem">A 6-digit OTP code has been sent to the super admin email: <strong>theesquire2020@gmail.com</strong>.</p>
+             <h4 style="font-size:0.9rem">Admin Registration Verification</h4>
+             <p style="font-size:0.75rem">A one-time 6-digit code was sent to the super admin email (<strong>theesquire2020@gmail.com</strong>). Enter it to finish creating the Admin account. Future sign-ins use only email and password.</p>
            </div>
          </div>
          <form id="auth-otp-form" onsubmit="event.preventDefault(); handleAuthOTPVerify();" style="display:flex; flex-direction:column; gap:16px">
@@ -98,7 +98,7 @@
              <input type="text" id="otp-code" class="form-input" placeholder="000000" maxlength="6" style="text-align:center; font-size:1.4rem; letter-spacing:0.3em; font-weight:700" required>
            </div>
            <button type="submit" class="btn btn-primary" style="padding:14px">Confirm Verification Code</button>
-           <button type="button" class="btn btn-secondary" onclick="cancelOTPFlow()">Back to Sign In</button>
+           <button type="button" class="btn btn-secondary" onclick="cancelOTPFlow()">Back</button>
          </form>
        </div>
 
@@ -224,7 +224,7 @@
           <div class="metric-card">
             <div class="metric-info">
               <h3>Children Supported</h3>
-              <div id="db-metric-total-children" class="metric-value">0</div>
+              <div id="db-metric-total-children" class="metric-value metric-value-green">0</div>
               <div class="metric-subtitle">Currently Enrolled</div>
             </div>
             <div class="metric-icon-wrapper">
@@ -246,7 +246,7 @@
           <div class="metric-card">
             <div class="metric-info">
               <h3>Outstanding Fees</h3>
-              <div id="db-metric-fees" class="metric-value">$0</div>
+              <div id="db-metric-fees" class="metric-value metric-value-red">0</div>
               <div class="metric-subtitle">School Fee Balance</div>
             </div>
             <div class="metric-icon-wrapper">
@@ -257,7 +257,7 @@
           <div class="metric-card">
             <div class="metric-info">
               <h3>Low Kitchen Stock</h3>
-              <div id="db-metric-stock" class="metric-value">0</div>
+              <div id="db-metric-stock" class="metric-value metric-value-green">0</div>
               <div class="metric-subtitle">Stock Items Alert</div>
             </div>
             <div class="metric-icon-wrapper">
@@ -720,6 +720,16 @@
       
       <!-- ================= 7. APP SETTINGS PANEL (ADMIN ONLY) ================= -->
       <section id="settings-panel" class="tab-panel">
+        <div class="metric-card admin-only" style="flex-direction:column; align-items:stretch; gap:16px; border:2px solid var(--primary)">
+          <h3 style="font-size:1.2rem">Publish Settings to Cloud Sheet</h3>
+          <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4">
+            Save every configuration below to the <strong>App_Settings</strong> sheet. Staff, donors, and other admins receive orphanage name, logo, theme colors, currency, and print details automatically when they connect.
+          </p>
+          <button id="save-all-settings-sheet-btn" type="button" class="btn btn-accent" style="align-self:flex-start" onclick="saveAllAppSettingsToSheet()">
+            Save All Settings to Sheet
+          </button>
+        </div>
+
         <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:16px">
           <h3 style="font-size:1.2rem">Google Sheets REST Engine Config</h3>
           <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4">
@@ -735,7 +745,7 @@
              <label for="settings-admin-otp-email">Super Admin OTP Destination Email</label>
              <input type="email" id="settings-admin-otp-email" class="form-input" placeholder="theesquire2020@gmail.com" readonly>
              <p style="font-size:0.72rem; color:var(--text-muted); margin-top:6px">
-               All Admin OTP codes are sent strictly to the super admin email: <strong>theesquire2020@gmail.com</strong>
+               Admin OTP is required once when registering a new Admin account. Sign-in uses email and password only. Codes are sent to: <strong>theesquire2020@gmail.com</strong>
              </p>
            </div>
           
@@ -829,7 +839,7 @@
         <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:16px; margin-top:20px">
           <h3 style="font-size:1.2rem">Visual Theme Customization</h3>
           <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4">
-            Customize the primary and secondary branding colors of the application. These preferences are stored locally in the viewport settings.
+            Customize the primary and secondary branding colors. Use <strong>Save All Settings to Sheet</strong> so every user sees the same theme when they connect.
           </p>
           
           <div class="form-grid" style="grid-template-columns: repeat(2, 1fr)">
@@ -1553,7 +1563,7 @@
 
 // Define sheet names and their respective headers for auto-creation
 const SHEET_SCHEMAS = {
-  "Children": ["id", "name", "age", "gender", "entryDate", "guardianName", "guardianPhone", "roomNumber", "bedNumber", "status"],
+  "Children": ["id", "name", "age", "gender", "entryDate", "guardianName", "guardianPhone", "roomNumber", "bedNumber", "status", "portraitUrl"],
   "Rooms": ["roomNumber", "capacity", "occupancy", "genderType", "notes"],
   "Food_Inventory": ["id", "itemName", "category", "stockIn", "stockOut", "currentStock", "unit", "expiryDate", "wastage", "notes"],
   "Daily_Meals": ["id", "date", "mealType", "plannedItems", "calories", "proteins", "carbs", "fats", "costPerChild", "notes"],

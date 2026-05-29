@@ -14,9 +14,7 @@ let state = {
    googleSheetsUrl: '',
    dbConnected: false,
    charts: {},
-   pendingLocalAdmin: null,
-   pendingCloudAdminEmail: null,
-   registeredAdminEmail: null,
+   pendingAdminRegistration: false,
    pendingChildPortraitDataUrl: '',
    adminOtpEmail: 'theesquire2020@gmail.com',
    currentReportCardId: null,
@@ -62,7 +60,7 @@ let state = {
   }
 };
 
-const DEFAULT_GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyuNtP-eiaK5Y9VaYZEFD4dSAD47JE04N-PxQ6YuhAPGxnjRgokd9s0M2MFixMbNd52/exec';
+const DEFAULT_GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzWuTjfetPnlwBH6OMJdc5EPjecEdhDg8UMCsVKzgm5xZz9XroeIFT-EEsdubrbHEnv/exec';
 const DEFAULT_ADMIN_OTP_EMAIL = 'theesquire2020@gmail.com';
 const DEFAULT_PRINT_PROFILE = {
   name: 'OrphanCare Children Home',
@@ -71,6 +69,65 @@ const DEFAULT_PRINT_PROFILE = {
   phone: '+254 700 123 456',
   email: 'admin@orphancare.local'
 };
+
+const DB_CACHE_KEY = 'oms_db_cache_v1';
+const DB_CACHE_TTL_MS = 5 * 60 * 1000;
+const ROYAL_PINK = '#e75480';
+const EMPTY_DB = {
+  children: [],
+  rooms: [],
+  food_inventory: [],
+  daily_meals: [],
+  school_enrollment: [],
+  school_fees: [],
+  academic_reports: [],
+  medical_records: [],
+  finances: [],
+  donations: [],
+  app_settings: [],
+  users: []
+};
+
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function saveDbCache(db) {
+  try {
+    localStorage.setItem(DB_CACHE_KEY, JSON.stringify({ ts: Date.now(), db }));
+  } catch (_) { /* quota */ }
+}
+
+function loadDbCache() {
+  try {
+    const raw = localStorage.getItem(DB_CACHE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed.db || Date.now() - parsed.ts > DB_CACHE_TTL_MS) return false;
+    state.db = parsed.db;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function applyCloudDbPayload(data) {
+  state.db = { ...EMPTY_DB };
+  for (const sheetName in data) {
+    const frontendKey = getFrontendSheetKey(sheetName);
+    state.db[frontendKey] = normalizeData(frontendKey, data[sheetName]);
+  }
+  state._dbLoadedAt = Date.now();
+  saveDbCache(state.db);
+}
+
+function getFeeBalance(fee) {
+  const balance = parseFloat(fee.balance ?? fee.Balance);
+  if (!isNaN(balance)) return Math.max(0, balance);
+  const due = parseFloat(fee.amountDue ?? fee.AmountDue ?? 0);
+  const paid = parseFloat(fee.amountPaid ?? fee.AmountPaid ?? 0);
+  return Math.max(0, due - paid);
+}
 
 // Sheet name mapping: Backend sheet name → Frontend state.db key
 const SHEET_NAME_MAP = {
@@ -203,28 +260,152 @@ function convertCurrency(amount, fromCurrency, toCurrency) {
 
 function updateExchangeRate(currency, rate) {
   state.exchangeRates[currency] = parseFloat(rate);
-  // Save to settings
-  const settingKey = `exchange_rate_${currency}`;
-  const existingSetting = state.db.app_settings.find(s => (s.SettingKey || s.settingKey) === settingKey);
-  if (existingSetting) {
-    existingSetting.SettingKey = settingKey;
-    existingSetting.SettingValue = rate.toString();
-    existingSetting.LastModified = new Date().toISOString();
-    cloudSaveRecord('App_Settings', existingSetting, 'ID');
-  } else {
-    cloudSaveRecord('App_Settings', {
-      ID: `fx_${currency.toLowerCase()}`,
-      SettingKey: settingKey,
-      SettingValue: rate.toString(),
-      LastModified: new Date().toISOString()
-    }, 'ID');
-  }
+  localStorage.setItem('oms_exchange_rates', JSON.stringify(state.exchangeRates));
 }
 
 function setDisplayCurrency(currency) {
   state.displayCurrency = currency;
   localStorage.setItem('oms_display_currency', currency);
   renderActiveTab(); // Re-render to show new currency
+}
+
+/** App_Settings sheet rows use columns: key, value */
+function makeAppSetting(key, value) {
+  return {
+    key: key,
+    value: value === undefined || value === null ? '' : String(value)
+  };
+}
+
+function collectAppSettingsFromForm() {
+  let inputUrl = (document.getElementById('settings-url-input')?.value || state.googleSheetsUrl || '').trim();
+  if (inputUrl.includes('exechttps://')) {
+    inputUrl = inputUrl.split('exechttps://')[0] + 'exec';
+  }
+  if (inputUrl) {
+    state.googleSheetsUrl = inputUrl;
+  }
+
+  const displayCurrencyEl = document.getElementById('settings-display-currency');
+  if (displayCurrencyEl) {
+    state.displayCurrency = displayCurrencyEl.value || state.displayCurrency;
+  }
+
+  state.exchangeRates.USD = parseFloat(document.getElementById('rate-usd')?.value) || state.exchangeRates.USD;
+  state.exchangeRates.EUR = parseFloat(document.getElementById('rate-eur')?.value) || state.exchangeRates.EUR;
+  state.exchangeRates.GBP = parseFloat(document.getElementById('rate-gbp')?.value) || state.exchangeRates.GBP;
+  state.exchangeRates.UGX = parseFloat(document.getElementById('rate-ugx')?.value) || state.exchangeRates.UGX;
+  state.exchangeRates.TZS = parseFloat(document.getElementById('rate-tzs')?.value) || state.exchangeRates.TZS;
+
+  const logo = (document.getElementById('settings-print-logo')?.value || '').trim() || DEFAULT_PRINT_PROFILE.logo;
+  const name = (document.getElementById('settings-print-name')?.value || '').trim();
+  const address = (document.getElementById('settings-print-address')?.value || '').trim();
+  const phone = (document.getElementById('settings-print-phone')?.value || '').trim();
+  const email = (document.getElementById('settings-print-email')?.value || '').trim();
+
+  if (name) {
+    state.printProfile = { logo, name, address, phone, email };
+  }
+
+  const primaryColor = document.getElementById('settings-primary-color')?.value || '#0d9488';
+  const secondaryColor = document.getElementById('settings-secondary-color')?.value || '#2563eb';
+
+  return { inputUrl, primaryColor, secondaryColor, logo, name, address, phone, email };
+}
+
+function syncSettingsUiFromState() {
+  const urlInput = document.getElementById('settings-url-input');
+  if (urlInput) urlInput.value = state.googleSheetsUrl || '';
+
+  const currencySelect = document.getElementById('settings-display-currency');
+  if (currencySelect) currencySelect.value = state.displayCurrency || 'KES';
+
+  const rateUsd = document.getElementById('rate-usd');
+  const rateEur = document.getElementById('rate-eur');
+  const rateGbp = document.getElementById('rate-gbp');
+  const rateUgx = document.getElementById('rate-ugx');
+  const rateTzs = document.getElementById('rate-tzs');
+  if (rateUsd) rateUsd.value = state.exchangeRates.USD;
+  if (rateEur) rateEur.value = state.exchangeRates.EUR;
+  if (rateGbp) rateGbp.value = state.exchangeRates.GBP;
+  if (rateUgx) rateUgx.value = state.exchangeRates.UGX;
+  if (rateTzs) rateTzs.value = state.exchangeRates.TZS;
+
+  const primary = localStorage.getItem('oms_theme_primary') || '#0d9488';
+  const secondary = localStorage.getItem('oms_theme_secondary') || '#2563eb';
+  const primaryInput = document.getElementById('settings-primary-color');
+  const secondaryInput = document.getElementById('settings-secondary-color');
+  if (primaryInput) primaryInput.value = primary;
+  if (secondaryInput) secondaryInput.value = secondary;
+  const primaryHex = document.getElementById('settings-primary-hex');
+  const secondaryHex = document.getElementById('settings-secondary-hex');
+  if (primaryHex) primaryHex.innerText = primary.toUpperCase();
+  if (secondaryHex) secondaryHex.innerText = secondary.toUpperCase();
+
+  setPrintProfileInputs(getCurrentPrintProfile());
+}
+
+function persistAppSettingsLocally(primaryColor, secondaryColor) {
+  localStorage.setItem('oms_google_sheets_url', state.googleSheetsUrl || '');
+  localStorage.setItem('oms_display_currency', state.displayCurrency);
+  localStorage.setItem('oms_exchange_rates', JSON.stringify(state.exchangeRates));
+  localStorage.setItem('oms_print_profile', JSON.stringify(getCurrentPrintProfile()));
+  if (primaryColor) localStorage.setItem('oms_theme_primary', primaryColor);
+  if (secondaryColor) localStorage.setItem('oms_theme_secondary', secondaryColor);
+  saveSession();
+}
+
+async function saveAllAppSettingsToSheet() {
+  if (!state.currentUser || state.currentUser.role !== 'Admin') {
+    showToast('Only administrators can publish settings to the sheet.', 'warning');
+    return;
+  }
+
+  if (!state.googleSheetsUrl || !state.googleSheetsUrl.trim()) {
+    showToast('Enter and save your Google Apps Script URL before publishing settings.', 'warning');
+    return;
+  }
+
+  const collected = collectAppSettingsFromForm();
+
+  if (!collected.name || !collected.address) {
+    showToast('Orphanage name and address are required in Print Identity.', 'warning');
+    return;
+  }
+
+  const settingsPairs = [
+    ['google_sheets_url', state.googleSheetsUrl],
+    ['display_currency', state.displayCurrency],
+    ['exchange_rates', JSON.stringify(state.exchangeRates)],
+    ['theme_primary', collected.primaryColor],
+    ['theme_secondary', collected.secondaryColor],
+    ['print_profile_json', JSON.stringify(getCurrentPrintProfile())],
+    ['admin_otp_email', state.adminOtpEmail || DEFAULT_ADMIN_OTP_EMAIL]
+  ];
+
+  showHUD(true, 'Publishing all settings to App_Settings sheet…');
+
+  try {
+    for (const [settingKey, settingValue] of settingsPairs) {
+      await cloudSaveRecord('App_Settings', makeAppSetting(settingKey, settingValue), 'key');
+    }
+
+    persistAppSettingsLocally(collected.primaryColor, collected.secondaryColor);
+    applyThemeColors(collected.primaryColor, collected.secondaryColor);
+    updateAllLogos();
+
+    await fetchCloudDatabase({ force: true, bypassCache: true, silent: true });
+    applySheetSettings();
+    syncSettingsUiFromState();
+    renderActiveTab();
+
+    showToast('All settings saved to the sheet. Every connected user will see them.', 'success');
+  } catch (err) {
+    console.error('saveAllAppSettingsToSheet failed:', err);
+    showToast(`Could not save settings to sheet: ${err.message}`, 'danger');
+  } finally {
+    showHUD(false);
+  }
 }
 
 // --- INITIALIZATION ---
@@ -307,62 +488,14 @@ function initApp() {
    }
    showLoginScreen();
    
-   // Now connect to Google Sheets in the background
-   async function connectAndLoad() {
-     try {
-       showHUD(true, 'Connecting to cloud database...');
-       
-       const controller = new AbortController();
-       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
-       
-       const response = await fetch(`${state.googleSheetsUrl}?action=readAll`, {
-         mode: 'cors',
-         signal: controller.signal
-       });
-       clearTimeout(timeoutId);
-       
-       const result = await response.json();
-       
-       if (result.success && result.data) {
-         state.db = {
-           children: [],
-           rooms: [],
-           food_inventory: [],
-           daily_meals: [],
-           school_enrollment: [],
-           school_fees: [],
-           academic_reports: [],
-           medical_records: [],
-           finances: [],
-           donations: [],
-           app_settings: [],
-           users: []
-         };
-         
-         for (let sheetName in result.data) {
-           const frontendKey = getFrontendSheetKey(sheetName);
-           state.db[frontendKey] = normalizeData(frontendKey, result.data[sheetName]);
-         }
-         state.dbConnected = true;
-         applySheetSettings();
-         updateConnectionIndicator('online', 'Connected to Cloud');
-         console.log('Connected to Google Sheets successfully');
-         showToast('Connected to cloud database!', 'success');
-       } else {
-         throw new Error(result.error || 'Unknown database error');
-       }
-     } catch (err) {
-       console.error("Failed to connect to Google Sheets:", err);
-       loadMockDatabase();
-       state.dbConnected = false;
-       updateConnectionIndicator('error', 'Connection Failed');
-       showToast('Working in offline mode', 'info');
-     }
-     
-     showHUD(false);
+   // Hydrate from cache immediately so the UI can paint without waiting on the network
+   if (loadDbCache()) {
+     state.dbConnected = true;
+     applySheetSettings();
+     updateConnectionIndicator('online', 'Cached — syncing…');
    }
-   
-   connectAndLoad(); // Load in background without blocking
+
+   fetchCloudDatabase({ silent: true, background: true });
  }
 
 // --- SECURE AUTHENTICATION FLOWS (Web Crypto SHA-256) ---
@@ -415,9 +548,9 @@ function switchAuthTab(tab) {
 }
 
 function cancelOTPFlow() {
-  state.pendingLocalAdmin = null;
-  state.pendingCloudAdminEmail = null;
-  switchAuthTab('login');
+  const wasRegistration = state.pendingAdminRegistration;
+  state.pendingAdminRegistration = false;
+  switchAuthTab(wasRegistration ? 'signup' : 'login');
 }
 
 async function postCloudAction(payload) {
@@ -464,17 +597,8 @@ async function handleAuthLogin() {
         password: password
       });
       if (result.success) {
-        if (result.otpRequired) {
-          state.pendingCloudAdminEmail = 'theesquire2020@gmail.com'; // Always super admin email
-          state.registeredAdminEmail = result.registeredAdmin; // Store registered admin email
-          switchAuthTab('otp');
-          showToast(`Verification code sent to super admin email: theesquire2020@gmail.com`, 'info');
-        } else {
-          state.pendingCloudAdminEmail = null;
-          state.registeredAdminEmail = null;
-          state.currentUser = result.user;
-          completeLoginFlow();
-        }
+        state.currentUser = result.user;
+        completeLoginFlow();
       } else {
         showToast(result.error || 'Invalid email or password.', 'danger');
       }
@@ -491,12 +615,6 @@ async function handleAuthLogin() {
 }
 
 function handleLocalLogin(email, passwordHash) {
-  const configuredAdminEmail = (state.adminOtpEmail || DEFAULT_ADMIN_OTP_EMAIL).toLowerCase();
-  if (email === configuredAdminEmail) {
-    showToast('Admin login requires cloud connection to send OTP to configured Admin email.', 'warning');
-    return;
-  }
-  
   if (!state.db.users) {
     state.db.users = [];
   }
@@ -537,21 +655,26 @@ async function handleAuthSignUp() {
         role: role
       });
       if (result.success) {
-        // Also save to local state
-        const userRecord = {
-          ID: 'user_' + Date.now().toString().substr(-6),
-          Email: email,
-          PasswordHash: passwordHash,
-          FullName: fullName,
-          Role: role,
-          CreatedDate: new Date().toISOString().substring(0, 10),
-          LastModified: new Date().toISOString()
-        };
-        state.db.users.push(userRecord);
-        
-        showToast(result.message || 'Registration successful! Please login.', 'success');
-        switchAuthTab('login');
-        document.getElementById('auth-signup-form').reset();
+        if (result.otpRequired) {
+          state.pendingAdminRegistration = true;
+          switchAuthTab('otp');
+          showToast('Enter the 6-digit code sent to the super admin email to complete Admin registration.', 'info');
+          document.getElementById('auth-signup-form').reset();
+        } else {
+          const userRecord = {
+            ID: 'user_' + Date.now().toString().substr(-6),
+            Email: email,
+            PasswordHash: passwordHash,
+            FullName: fullName,
+            Role: role,
+            CreatedDate: new Date().toISOString().substring(0, 10),
+            LastModified: new Date().toISOString()
+          };
+          state.db.users.push(userRecord);
+          showToast(result.message || 'Registration successful! Please login.', 'success');
+          switchAuthTab('login');
+          document.getElementById('auth-signup-form').reset();
+        }
       } else {
         showToast(result.error || 'Registration failed.', 'danger');
       }
@@ -607,34 +730,26 @@ async function handleAuthOTPVerify() {
         action: 'verifyAdminOTP',
         otp: otp
       });
-      if (result.success) {
-        state.pendingCloudAdminEmail = null;
-        state.registeredAdminEmail = null;
+      if (result.success && result.user) {
+        state.pendingAdminRegistration = false;
         state.currentUser = result.user;
-        completeLoginFlow();
+        completeLoginFlow({ registrationComplete: !!result.registrationComplete });
       } else {
         showToast(result.error || 'Invalid or expired OTP code.', 'danger');
       }
     } catch (err) {
-      console.warn("Cloud OTP verification failed, trying local verification.", err);
-      handleLocalOTPVerify(otp);
+      console.warn('Cloud OTP verification failed.', err);
+      showToast('OTP verification requires a cloud connection.', 'danger');
     } finally {
       showHUD(false);
     }
   } else {
-    handleLocalOTPVerify(otp);
+    showToast('OTP verification requires a cloud connection.', 'danger');
     showHUD(false);
   }
 }
 
-function handleLocalOTPVerify(otp) {
-  state.pendingLocalAdmin = null;
-  state.pendingCloudAdminEmail = null;
-  showToast('OTP verification requires cloud connection for Admin logins.', 'danger');
-  switchAuthTab('login');
-}
-
-function completeLoginFlow() {
+function completeLoginFlow(options = {}) {
   // Hide startup loader
   const loader = document.getElementById('startup-loader');
   if (loader) {
@@ -654,13 +769,17 @@ function completeLoginFlow() {
   startSessionTimer();
   saveSession();
   
-  showToast(`Welcome back, ${user.fullName || user.email}!`, 'success');
+  if (options.registrationComplete) {
+    showToast(`Welcome, ${user.fullName || user.email}! Admin registration is complete.`, 'success');
+  } else {
+    showToast(`Welcome back, ${user.fullName || user.email}!`, 'success');
+  }
   
   // Enforce role visibility constraints
   applyRoleBasedVisibility();
   
   // Load Database
-  loadDatabase();
+  loadDatabase({ skipIfFresh: true, silent: true });
 }
 
 // Session Management Functions
@@ -721,7 +840,7 @@ function startSessionTimer() {
 function logout() {
   localStorage.removeItem('orphanage_session');
   state.currentUser = null;
-  state.registeredAdminEmail = null;
+  state.pendingAdminRegistration = false;
   state.sessionStartTime = null;
   if (state.sessionTimer) clearTimeout(state.sessionTimer);
   
@@ -770,30 +889,12 @@ function initCurrencySettings() {
   document.getElementById('rate-tzs').value = state.exchangeRates.TZS;
 }
 
-function saveCurrencySettings() {
-  state.displayCurrency = document.getElementById('settings-display-currency').value;
-  state.exchangeRates.USD = parseFloat(document.getElementById('rate-usd').value) || 0.0078;
-  state.exchangeRates.EUR = parseFloat(document.getElementById('rate-eur').value) || 0.0072;
-  state.exchangeRates.GBP = parseFloat(document.getElementById('rate-gbp').value) || 0.0062;
-  state.exchangeRates.UGX = parseFloat(document.getElementById('rate-ugx').value) || 29.5;
-  state.exchangeRates.TZS = parseFloat(document.getElementById('rate-tzs').value) || 19.8;
-  
-  localStorage.setItem('oms_display_currency', state.displayCurrency);
-  localStorage.setItem('oms_exchange_rates', JSON.stringify(state.exchangeRates));
-  saveSession();
-  
-  // Save to App_Settings sheet
-  const settingsRecord = {
-    ID: 'currency_settings',
-    SettingKey: 'currency',
-    SettingValue: state.displayCurrency,
-    DisplayCurrency: state.displayCurrency,
-    ExchangeRates: JSON.stringify(state.exchangeRates),
-    LastModified: new Date().toISOString()
-  };
-  cloudSaveRecord('App_Settings', settingsRecord, 'ID');
-  
-  showToast('Currency settings saved!', 'success');
+async function saveCurrencySettings() {
+  collectAppSettingsFromForm();
+  persistAppSettingsLocally();
+  await cloudSaveRecord('App_Settings', makeAppSetting('display_currency', state.displayCurrency), 'key');
+  await cloudSaveRecord('App_Settings', makeAppSetting('exchange_rates', JSON.stringify(state.exchangeRates)), 'key');
+  showToast('Currency settings saved to sheet!', 'success');
   renderActiveTab();
 }
 
@@ -880,18 +981,21 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function saveColorSettings() {
+async function saveColorSettings() {
   const primaryColor = document.getElementById('settings-primary-color').value;
   const secondaryColor = document.getElementById('settings-secondary-color').value;
-  
-  localStorage.setItem('oms_theme_primary', primaryColor);
-  localStorage.setItem('oms_theme_secondary', secondaryColor);
-  
+
+  persistAppSettingsLocally(primaryColor, secondaryColor);
+
   document.getElementById('settings-primary-hex').innerText = primaryColor.toUpperCase();
   document.getElementById('settings-secondary-hex').innerText = secondaryColor.toUpperCase();
-  
+
   applyThemeColors(primaryColor, secondaryColor);
-  showToast('Theme colors saved and applied successfully!', 'success');
+
+  await cloudSaveRecord('App_Settings', makeAppSetting('theme_primary', primaryColor), 'key');
+  await cloudSaveRecord('App_Settings', makeAppSetting('theme_secondary', secondaryColor), 'key');
+
+  showToast('Theme colors saved to sheet and applied!', 'success');
 }
 
 function resetColorSettings() {
@@ -1007,76 +1111,96 @@ function normalizeData(sheetName, data) {
 }
 
 // --- DATA ACCESS & SHEET INTEGRATION ---
-async function loadDatabase() {
-  showHUD(true, 'Initializing database...');
-   
-  if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
-    // Attempt sheets download with short timeout
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-       
-      const response = await fetch(`${state.googleSheetsUrl}?action=readAll`, { 
-        mode: 'cors',
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-       
-      const result = await response.json();
-      console.log('📊 Received data from Google Sheets:', result);
-      console.log('📋 Sheet names in result:', Object.keys(result.data || {}));
-       
-      if (result.success && result.data) {
-        state.db = {
-          children: [],
-          rooms: [],
-          food_inventory: [],
-          daily_meals: [],
-          school_enrollment: [],
-          school_fees: [],
-          academic_reports: [],
-          medical_records: [],
-          finances: [],
-          donations: [],
-          app_settings: [],
-          users: []
-        };
-         
-        for (let sheetName in result.data) {
-          const frontendKey = getFrontendSheetKey(sheetName);
-          state.db[frontendKey] = normalizeData(frontendKey, result.data[sheetName]);
-        }
-        state.dbConnected = true;
-        applySheetSettings();
-        updateConnectionIndicator('online', 'Connected to Cloud');
-        console.log('✅ state.db after loading:', state.db);
-        console.log('📦 state.db.children:', state.db.children);
-        console.log('📦 state.db.users:', state.db.users);
-        showToast('Connected to cloud database.', 'success');
-      } else {
-        throw new Error(result.error || 'Unknown database error');
+async function fetchCloudDatabase(options = {}) {
+  const silent = !!options.silent;
+  const background = !!options.background;
+
+  if (!state.googleSheetsUrl || state.googleSheetsUrl.trim() === '') {
+    if (!background) {
+      loadMockDatabase();
+      state.dbConnected = false;
+      updateConnectionIndicator('error', 'No URL Set');
+      if (!silent) showToast('Please set your Google Sheets URL in App Settings!', 'warning');
+    }
+    return false;
+  }
+
+  if (!silent) showHUD(true, 'Synchronizing database…');
+
+  try {
+    const controller = new AbortController();
+    const timeoutMs = background ? 12000 : 15000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let fetchUrl = `${state.googleSheetsUrl}?action=readAll`;
+    if (options.bypassCache) {
+      fetchUrl += '&bypassCache=true';
+    }
+
+    const response = await fetch(fetchUrl, {
+      mode: 'cors',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    const result = await response.json();
+
+    if (result.success && result.data) {
+      applyCloudDbPayload(result.data);
+      state.dbConnected = true;
+      applySheetSettings();
+      updateConnectionIndicator('online', 'Connected to Cloud');
+      if (!silent) showToast('Connected to cloud database.', 'success');
+      if (state.currentUser) {
+        applyRoleBasedVisibility();
+        renderActiveTab();
       }
-    } catch (err) {
-      console.error("Failed to connect to Google Sheets:", err);
+      return true;
+    }
+    throw new Error(result.error || 'Unknown database error');
+  } catch (err) {
+    console.error('Failed to connect to Google Sheets:', err);
+    if (!loadDbCache()) {
       loadMockDatabase();
       state.dbConnected = false;
       updateConnectionIndicator('error', 'Connection Failed');
-      showToast('Failed to connect to Google Sheets! Please check your URL and deployment.', 'danger');
+    } else {
+      updateConnectionIndicator('online', 'Offline — showing cached data');
     }
-  } else {
-    loadMockDatabase();
-    state.dbConnected = false;
-    updateConnectionIndicator('error', 'No URL Set');
-    showToast('Please set your Google Sheets URL in App Settings!', 'warning');
+    if (!silent) {
+      showToast('Could not refresh from cloud. Showing cached data if available.', 'warning');
+    }
+    return false;
+  } finally {
+    if (!silent) showHUD(false);
   }
-   
-  showHUD(false);
-   
-  // Default routing
-  if (state.currentUser) {
-    applyRoleBasedVisibility();
-    renderActiveTab();
-  } else {
+}
+
+async function loadDatabase(options = {}) {
+  const silent = !!options.silent;
+  const skipIfFresh = !!options.skipIfFresh && !options.force;
+
+  if (skipIfFresh && state._dbLoadedAt && Date.now() - state._dbLoadedAt < 45000) {
+    if (state.currentUser) {
+      applyRoleBasedVisibility();
+      renderActiveTab();
+    }
+    return;
+  }
+
+  if (!state._dbLoadedAt && loadDbCache()) {
+    applySheetSettings();
+    state.dbConnected = true;
+    updateConnectionIndicator('online', 'Cached — syncing…');
+    if (state.currentUser) {
+      applyRoleBasedVisibility();
+      renderActiveTab();
+    }
+  }
+
+  await fetchCloudDatabase({ silent });
+
+  if (!state.currentUser) {
     switchTab('dashboard');
   }
 }
@@ -1085,14 +1209,13 @@ function applySheetSettings() {
   const rows = Array.isArray(state.db.app_settings) ? state.db.app_settings : [];
   const settings = {};
   rows.forEach(row => {
-    if (row.SettingKey && row.SettingValue !== undefined) {
-      settings[row.SettingKey] = row.SettingValue;
-    }
-    if (row.key && row.value !== undefined) {
-      settings[row.key] = row.value;
-    }
-    if (row.ID && row.SettingKey && row.SettingValue !== undefined) {
-      settings[row.SettingKey] = row.SettingValue;
+    const settingKey = (row.key || row.SettingKey || row.settingKey || '').toString().trim();
+    if (!settingKey) return;
+    const settingValue = row.value !== undefined && row.value !== null && row.value !== ''
+      ? row.value
+      : row.SettingValue;
+    if (settingValue !== undefined && settingValue !== null) {
+      settings[settingKey] = settingValue;
     }
   });
 
@@ -1112,22 +1235,32 @@ function applySheetSettings() {
     }
   }
 
-  if (settings.currency) {
-    state.displayCurrency = settings.currency;
-    localStorage.setItem('oms_display_currency', state.displayCurrency);
-  }
-  if (settings.DisplayCurrency) {
-    state.displayCurrency = settings.DisplayCurrency;
+  const sheetCurrency = settings.display_currency || settings.currency || settings.DisplayCurrency;
+  if (sheetCurrency) {
+    state.displayCurrency = sheetCurrency.toString();
     localStorage.setItem('oms_display_currency', state.displayCurrency);
   }
 
-  if (settings.ExchangeRates) {
+  const ratesJson = settings.exchange_rates || settings.ExchangeRates;
+  if (ratesJson) {
     try {
-      state.exchangeRates = JSON.parse(settings.ExchangeRates);
-      localStorage.setItem('oms_exchange_rates', JSON.stringify(state.exchangeRates));
+      const parsed = typeof ratesJson === 'string' ? JSON.parse(ratesJson) : ratesJson;
+      if (parsed && typeof parsed === 'object') {
+        state.exchangeRates = { ...state.exchangeRates, ...parsed };
+        localStorage.setItem('oms_exchange_rates', JSON.stringify(state.exchangeRates));
+      }
     } catch (err) {
-      console.warn('Invalid ExchangeRates data from sheet', err);
+      console.warn('Invalid exchange_rates data from sheet', err);
     }
+  }
+
+  const themePrimary = settings.theme_primary || settings.themePrimary;
+  const themeSecondary = settings.theme_secondary || settings.themeSecondary;
+  if (themePrimary) {
+    const secondary = themeSecondary || localStorage.getItem('oms_theme_secondary') || '#2563eb';
+    localStorage.setItem('oms_theme_primary', themePrimary);
+    localStorage.setItem('oms_theme_secondary', secondary);
+    applyThemeColors(themePrimary, secondary);
   }
 
   if (settings.admin_otp_email) {
@@ -1155,7 +1288,10 @@ function applySheetSettings() {
     state.printProfile = { ...state.printProfile, ...printProfileUpdates };
     localStorage.setItem('oms_print_profile', JSON.stringify(getCurrentPrintProfile()));
     setPrintProfileInputs(getCurrentPrintProfile());
+    updateAllLogos();
   }
+
+  syncSettingsUiFromState();
 }
 
 function updateConnectionIndicator(status, text) {
@@ -1173,7 +1309,7 @@ async function syncWithCloud() {
     switchTab('settings');
     return;
   }
-  await loadDatabase();
+  await loadDatabase({ force: true });
 }
 
 function getFieldValueByVariants(obj, keyName) {
@@ -1683,10 +1819,8 @@ function renderDashboardTab() {
   }).length;
   const occupancyRate = totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
   
-  // Pending school fees
-  const pendingFees = state.db.school_fees.reduce((acc, f) => {
-    return acc + (parseFloat(f.balance || 0));
-  }, 0);
+  // Outstanding school fees
+  const pendingFees = state.db.school_fees.reduce((acc, f) => acc + getFeeBalance(f), 0);
   
   // Food Low Stock Items count
   const lowStockCount = state.db.food_inventory.filter(item => {
@@ -1702,108 +1836,86 @@ function renderDashboardTab() {
 
   // Remove existing color classes first
   [totalKidsEl, occupancyEl, feesEl, stockEl].forEach(el => {
-    el.classList.remove('metric-value-green', 'metric-value-yellow', 'metric-value-red', 'metric-value-blue');
+    el.classList.remove(
+      'metric-value-green', 'metric-value-yellow', 'metric-value-red',
+      'metric-value-blue', 'metric-value-deep-blue', 'metric-value-royal-pink'
+    );
   });
 
-  // Total children: green (good)
+  // Children supported — always green
   totalKidsEl.innerText = totalKids;
   totalKidsEl.classList.add('metric-value-green');
 
-  // Occupancy rate: red if <30%, yellow if 30-60%, green if >60%
+  // Room occupancy — deep blue
   occupancyEl.innerText = `${occupancyRate}%`;
-  if (occupancyRate < 30) {
-    occupancyEl.classList.add('metric-value-red');
-  } else if (occupancyRate < 60) {
-    occupancyEl.classList.add('metric-value-yellow');
-  } else {
-    occupancyEl.classList.add('metric-value-green');
-  }
+  occupancyEl.classList.add('metric-value-deep-blue');
 
-  // Fees: red if >0 (outstanding), green if 0
+  // Outstanding fees — always red on this card
   feesEl.innerText = formatCurrency(pendingFees);
-  if (pendingFees > 0) {
-    feesEl.classList.add('metric-value-red');
-  } else {
-    feesEl.classList.add('metric-value-green');
-  }
+  feesEl.classList.add('metric-value-red');
 
-  // Low stock: red if >0, green if 0
+  // Low kitchen stock — yellow when alerts exist, green when healthy
   stockEl.innerText = lowStockCount;
   if (lowStockCount > 0) {
-    stockEl.classList.add('metric-value-red');
+    stockEl.classList.add('metric-value-yellow');
   } else {
     stockEl.classList.add('metric-value-green');
   }
 
   document.getElementById('db-metric-occupancy-sub').innerText = `${occupiedBeds} / ${totalBeds} Beds Occupied`;
   
-  // Render Dashboard Charts with requestAnimationFrame for performance
-  requestAnimationFrame(() => {
+  const scheduleCharts = window.requestIdleCallback
+    ? (cb) => requestIdleCallback(cb, { timeout: 800 })
+    : (cb) => setTimeout(cb, 50);
+  scheduleCharts(() => {
+    if (typeof Chart === 'undefined') {
+      setTimeout(renderDashboardCharts, 150);
+      return;
+    }
     renderDashboardCharts();
   });
-  
-  // Load Quick Activity Feed with real database entries
+
+  renderDashboardActivityFeed();
+}
+
+function renderDashboardActivityFeed() {
   const feedList = document.getElementById('dashboard-feed-list');
+  if (!feedList) return;
   feedList.innerHTML = '';
-  
+
   const activityItems = [];
-  
-  // Add children entries
-  state.db.children.forEach(child => {
-    const childName = getChildNameById(child.ID || child.id);
-    activityItems.push({
-      title: `${childName} enrolled at orphanage`,
-      date: child.EntryDate || child.entryDate || 'Unknown',
-      icon: "👶",
-      category: "Home Logistics"
-    });
-  });
-  
-  // Add donation entries
-  state.db.donations.forEach(donation => {
+
+  state.db.donations.slice(0, 20).forEach(donation => {
     const donorName = donation.DonorName || donation.donorName || 'Anonymous';
     const amount = formatCurrency(parseFloat(donation.Amount || donation.amount || 0));
     activityItems.push({
       title: `${amount} received from ${donorName}`,
-      date: donation.Date || donation.date || 'Unknown',
-      icon: "💖",
-      category: "Donations"
+      date: donation.Date || donation.date || '',
+      icon: '💖',
+      category: 'Donations'
     });
   });
-  
-  // Add financial transactions
-  state.db.finances.forEach(transaction => {
+
+  state.db.finances.slice(0, 20).forEach(transaction => {
     const flowType = (transaction.Type || transaction.type || '').toUpperCase();
     activityItems.push({
-      title: `${flowType} transaction: ${transaction.Description || transaction.description || 'No description'}`,
-      date: transaction.Date || transaction.date || 'Unknown',
-      icon: flowType === 'INCOME' ? "💸" : "💳",
-      category: "Finances"
+      title: `${flowType}: ${transaction.Description || transaction.description || 'No description'}`,
+      date: transaction.Date || transaction.date || '',
+      icon: flowType === 'INCOME' ? '💸' : '💳',
+      category: 'Finances'
     });
   });
-  
-  // Add school fees entries
-  state.db.school_fees.forEach(fee => {
+
+  state.db.school_fees.slice(0, 15).forEach(fee => {
     const childName = getChildNameById(fee.ChildId || fee.childId);
     activityItems.push({
-      title: `School fee for ${childName}: ${formatCurrency(parseFloat(fee.AmountDue || fee.amountDue || 0))}`,
-      date: fee.DueDate || fee.dueDate || 'Unknown',
-      icon: "📚",
-      category: "Schooling"
+      title: `School fee for ${childName}: ${formatCurrency(getFeeBalance(fee))}`,
+      date: fee.DueDate || fee.dueDate || '',
+      icon: '📚',
+      category: 'Schooling'
     });
   });
-  
-  // Add food inventory entries
-  state.db.food_inventory.forEach(item => {
-    activityItems.push({
-      title: `${item.ItemName || item.itemName || 'Item'}: ${item.CurrentStock || item.currentStock || 0} units in stock`,
-      date: item.LastModified || 'Unknown',
-      icon: "🍎",
-      category: "Food & Nutrition"
-    });
-  });
-  
-  // Sort activities by date (newest first)
+
   activityItems.sort((a, b) => {
     const dateA = new Date(a.date);
     const dateB = new Date(b.date);
@@ -1811,37 +1923,43 @@ function renderDashboardTab() {
     if (isNaN(dateB)) return -1;
     return dateB - dateA;
   });
-  
-  // Take first 8 items
-  const recentItems = activityItems.slice(0, 8);
-  
-  recentItems.forEach(act => {
-    feedList.innerHTML += `
-      <div style="display:flex; align-items:center; gap:12px; padding:12px; border-bottom:1px solid var(--border-color)">
-        <div style="font-size:1.5rem">${act.icon}</div>
-        <div style="flex-grow:1">
-          <div style="font-weight:600; font-size:0.85rem">${act.title}</div>
-          <div style="font-size:0.75rem; color:var(--text-muted)">${act.category} &bull; ${act.date}</div>
-        </div>
+
+  const fragment = document.createDocumentFragment();
+  activityItems.slice(0, 8).forEach(act => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-color)';
+    row.innerHTML = `
+      <div style="font-size:1.5rem">${act.icon}</div>
+      <div style="flex-grow:1;min-width:0">
+        <div style="font-weight:600;font-size:0.85rem;word-break:break-word">${act.title}</div>
+        <div style="font-size:0.75rem;color:var(--text-muted)">${act.category} &bull; ${act.date || '—'}</div>
       </div>
     `;
+    fragment.appendChild(row);
   });
+  feedList.appendChild(fragment);
 }
 
 function renderDashboardCharts() {
-  const ctxOccupancy = document.getElementById('chart-occupancy-canvas').getContext('2d');
-  const ctxFinances = document.getElementById('chart-finance-canvas').getContext('2d');
-  
-  // Destroy existing charts to prevent hover glitch
+  const occupancyCanvas = document.getElementById('chart-occupancy-canvas');
+  const financeCanvas = document.getElementById('chart-finance-canvas');
+  if (!occupancyCanvas || !financeCanvas || typeof Chart === 'undefined') return;
+
+  const ctxOccupancy = occupancyCanvas.getContext('2d');
+  const ctxFinances = financeCanvas.getContext('2d');
+
   if (state.charts.occupancy) state.charts.occupancy.destroy();
   if (state.charts.finances) state.charts.finances.destroy();
-  
+
   const textMain = getComputedStyle(document.body).getPropertyValue('--text-main').trim();
   const textMuted = getComputedStyle(document.body).getPropertyValue('--text-muted').trim();
   const primaryColor = getComputedStyle(document.body).getPropertyValue('--primary').trim();
   const secondaryColor = getComputedStyle(document.body).getPropertyValue('--secondary').trim();
   const accentColor = getComputedStyle(document.body).getPropertyValue('--accent').trim();
   const dangerColor = getComputedStyle(document.body).getPropertyValue('--danger').trim();
+  const chartAnim = isMobileViewport() ? false : { duration: 350 };
+  const dpr = isMobileViewport() ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+  Chart.defaults.devicePixelRatio = dpr;
   
   // 1. Occupancy Doughnut Chart
   const boysCount = state.db.children.filter(c => {
@@ -1862,7 +1980,7 @@ function renderDashboardCharts() {
       labels: ['Boys', 'Girls', 'Available Beds'],
       datasets: [{
         data: [boysCount, girlsCount, emptyBeds],
-        backgroundColor: [secondaryColor, accentColor, 'rgba(100, 110, 140, 0.2)'],
+        backgroundColor: [secondaryColor, accentColor, ROYAL_PINK],
         borderColor: 'rgba(0, 0, 0, 0.1)',
         borderWidth: 1
       }]
@@ -1870,10 +1988,11 @@ function renderDashboardCharts() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: chartAnim,
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { color: textMain }
+          labels: { color: textMain, boxWidth: 12, padding: 10 }
         }
       }
     }
@@ -1886,51 +2005,58 @@ function renderDashboardCharts() {
   let expenseTotal = 0;
   
   finances.forEach(f => {
-    const amt = parseFloat(f.amount || 0);
-    if (f.type === 'Income') incomeTotal += amt;
-    else if (f.type === 'Expense') expenseTotal += amt;
+    const amt = parseFloat(f.amount ?? f.Amount ?? 0) || 0;
+    const flowType = (f.type || f.Type || '').toString();
+    if (flowType === 'Income') incomeTotal += amt;
+    else if (flowType === 'Expense') expenseTotal += amt;
   });
   
-  state.charts.finances = new Chart(ctxFinances, {
-    type: 'bar',
-    data: {
-      labels: ['Treasury Totals'],
-      datasets: [
-        {
-          label: 'Total Funding Received',
-          data: [incomeTotal],
-          backgroundColor: primaryColor,
-          borderRadius: 8
-        },
-        {
-          label: 'Operational Expenditures',
-          data: [expenseTotal],
-          backgroundColor: dangerColor,
-          borderRadius: 8
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { color: textMain }
-        }
+  try {
+    state.charts.finances = new Chart(ctxFinances, {
+      type: 'bar',
+      data: {
+        labels: ['Treasury Totals'],
+        datasets: [
+          {
+            label: 'Total Funding Received',
+            data: [incomeTotal],
+            backgroundColor: primaryColor || '#0d9488',
+            borderRadius: 8
+          },
+          {
+            label: 'Operational Expenditures',
+            data: [expenseTotal],
+            backgroundColor: dangerColor || '#ef4444',
+            borderRadius: 8
+          }
+        ]
       },
-      scales: {
-        y: {
-          grid: { color: 'rgba(100, 110, 140, 0.1)' },
-          ticks: { color: textMuted }
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: chartAnim,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { color: textMain, boxWidth: 12, padding: 10 }
+          }
         },
-        x: {
-          grid: { display: false },
-          ticks: { color: textMuted }
+        scales: {
+          y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(100, 110, 140, 0.1)' },
+            ticks: { color: textMuted }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { color: textMuted }
+          }
         }
       }
-    }
-  });
+    });
+  } catch (chartErr) {
+    console.error('Finance ledger chart failed to render:', chartErr);
+  }
 }
 
 // --- 2. HOME MANAGEMENT TAB ---
@@ -1991,15 +2117,17 @@ function renderHomeTab() {
         child.roomNumber.toString() === room.roomNumber.toString();
     }).length;
     const capacity = parseInt(room.capacity || 0);
+    const availableBeds = Math.max(0, capacity - currentOccupied);
     const progressPercent = capacity > 0 ? Math.min(100, Math.round((currentOccupied / capacity) * 100)) : 0;
     
     roomsGrid.innerHTML += `
-      <div class="metric-card" style="flex-direction:column; align-items:stretch; gap:12px">
-        <div style="display:flex; justify-content:space-between; align-items:center">
+      <div class="metric-card room-card" style="flex-direction:column; align-items:stretch; gap:12px">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
           <h4 style="font-size:1.1rem; color:var(--text-main)">Room ${room.roomNumber}</h4>
           <span class="badge badge-info">${room.genderType}</span>
         </div>
         <div style="font-size:0.8rem; color:var(--text-muted)">Capacity: ${capacity} beds</div>
+        <div class="beds-available-royal">${availableBeds} bed${availableBeds === 1 ? '' : 's'} available</div>
         <div>
           <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:4px">
             <span>Occupancy</span>
@@ -2190,21 +2318,34 @@ function editChildModal(id) {
 
 async function saveChildSubmit() {
   const roomId = document.getElementById('child-form-room').value;
+  const childId = document.getElementById('child-form-id').value;
+  const childName = document.getElementById('child-form-name').value;
+  const portraitUrl = state.pendingChildPortraitDataUrl || '';
   const record = {
-    ID: document.getElementById('child-form-id').value,
-    FullName: document.getElementById('child-form-name').value,
+    ID: childId,
+    id: childId,
+    FullName: childName,
+    name: childName,
     DateOfBirth: document.getElementById('child-form-age').value,
+    age: document.getElementById('child-form-age').value,
     Gender: document.getElementById('child-form-gender').value,
+    gender: document.getElementById('child-form-gender').value,
     AdmissionDate: document.getElementById('child-form-entry').value,
+    entryDate: document.getElementById('child-form-entry').value,
     Status: document.getElementById('child-form-status').value,
+    status: document.getElementById('child-form-status').value,
     RoomID: roomId,
-    roomNumber: roomId, // Add for compatibility with rendering
+    roomNumber: roomId,
     BedNumber: document.getElementById('child-form-bed').value,
     bedNumber: document.getElementById('child-form-bed').value,
     GuardianName: document.getElementById('child-form-guardian').value,
+    guardianName: document.getElementById('child-form-guardian').value,
     GuardianContact: document.getElementById('child-form-phone').value,
-    PortraitUrl: state.pendingChildPortraitDataUrl || '',
-    Portrait: state.pendingChildPortraitDataUrl || '',
+    guardianPhone: document.getElementById('child-form-phone').value,
+    PortraitUrl: portraitUrl,
+    Portrait: portraitUrl,
+    portraitUrl: portraitUrl,
+    portrait: portraitUrl,
     MedicalNotes: '',
     LastModified: new Date().toISOString()
   };
@@ -2283,7 +2424,7 @@ function renderFoodMeals() {
           </div>
           <span style="font-size:0.75rem">${meal.proteins}g (${proteinsPct}%)</span>
         </td>
-        <td><strong>$${parseFloat(meal.costPerChild).toFixed(2)}</strong></td>
+        <td><strong>${formatCurrency(parseFloat(meal.costPerChild || 0))}</strong></td>
         <td class="staff-admin-only">
           <button class="btn btn-secondary btn-icon-only" onclick="editMealModal('${meal.id}')" title="Edit Meal Entry">
             <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7m-8.5-4.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L14.5 7.5z"/></svg>
@@ -2403,8 +2544,10 @@ function showAddFeeModal() {
   childSelect.innerHTML = '<option value="">-- Select Child --</option>';
   state.db.children.forEach(child => {
     const option = document.createElement('option');
-    option.value = child.id;
-    option.textContent = `${child.fullName} (${child.id})`;
+    const childView = getChildView(child);
+    const childKey = child.id || child.ID;
+    option.value = childKey;
+    option.textContent = `${childView.name} (${childKey})`;
     childSelect.appendChild(option);
   });
   
@@ -3104,8 +3247,10 @@ function editFeeModal(id) {
   childSelect.innerHTML = '<option value="">-- Select Child --</option>';
   state.db.children.forEach(child => {
     const option = document.createElement('option');
-    option.value = child.id;
-    option.textContent = `${child.fullName} (${child.id})`;
+    const childView = getChildView(child);
+    const childKey = child.id || child.ID;
+    option.value = childKey;
+    option.textContent = `${childView.name} (${childKey})`;
     childSelect.appendChild(option);
   });
   childSelect.value = fee.childId;
@@ -3855,7 +4000,7 @@ function renderFinanceReports() {
       <div class="nutrition-item">
         <div class="nutrition-item-header">
           <span>${cat}</span>
-          <span class="value">$${actual.toLocaleString()} / $${limit.toLocaleString()} (${percentage}%)</span>
+          <span class="value">${formatCurrency(actual)} / ${formatCurrency(limit)} (${percentage}%)</span>
         </div>
         <div class="progress-track">
           <div class="progress-fill" style="width: ${percentage}%; background: ${percentage > 90 ? 'var(--danger)' : 'var(--primary)'}"></div>
@@ -4239,11 +4384,10 @@ async function sendThankNote(donationId) {
 
 // --- 8. SETTINGS TAB ---
 function renderSettingsTab() {
-  document.getElementById('settings-url-input').value = state.googleSheetsUrl;
   document.getElementById('settings-url-input').readOnly = false;
   const adminEmailInput = document.getElementById('settings-admin-otp-email');
   if (adminEmailInput) adminEmailInput.value = state.adminOtpEmail || DEFAULT_ADMIN_OTP_EMAIL;
-  setPrintProfileInputs(getCurrentPrintProfile());
+  syncSettingsUiFromState();
 }
 
 async function saveSettingsUrl() {
@@ -4264,14 +4408,7 @@ async function saveSettingsUrl() {
   document.getElementById('settings-url-input').value = inputUrl;
   localStorage.setItem('oms_google_sheets_url', inputUrl);
   
-  // Save to App_Settings sheet
-  const settingsRecord = {
-    id: 'sheets_url',
-    settingKey: 'google_sheets_url',
-    settingValue: inputUrl,
-    lastModified: new Date().toISOString()
-  };
-  cloudSaveRecord('App_Settings', settingsRecord, 'id');
+  await cloudSaveRecord('App_Settings', makeAppSetting('google_sheets_url', inputUrl), 'key');
   
   showToast('Apps Script URL Saved. Testing connection...', 'info');
   await loadDatabase();
@@ -4319,13 +4456,7 @@ async function saveAdminOtpEmail() {
   state.adminOtpEmail = email;
   localStorage.setItem('oms_admin_otp_email', email);
 
-  const settingsRecord = {
-    ID: 'admin_otp_email',
-    SettingKey: 'admin_otp_email',
-    SettingValue: email,
-    LastModified: new Date().toISOString()
-  };
-  await cloudSaveRecord('App_Settings', settingsRecord, 'ID');
+  await cloudSaveRecord('App_Settings', makeAppSetting('admin_otp_email', email), 'key');
   showToast(`Admin OTP email updated to ${email}`, 'success');
 }
 
@@ -4352,12 +4483,7 @@ async function savePrintProfileSettings() {
   const profilePayload = JSON.stringify(getCurrentPrintProfile());
   localStorage.setItem('oms_print_profile', profilePayload);
 
-  await cloudSaveRecord('App_Settings', {
-    ID: 'print_profile_json',
-    SettingKey: 'print_profile_json',
-    SettingValue: profilePayload,
-    LastModified: new Date().toISOString()
-  }, 'ID');
+  await cloudSaveRecord('App_Settings', makeAppSetting('print_profile_json', profilePayload), 'key');
 
   setPrintProfileInputs(getCurrentPrintProfile());
   updateAllLogos();

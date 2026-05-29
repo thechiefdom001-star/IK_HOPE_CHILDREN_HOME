@@ -21,7 +21,7 @@
  *   ✅ Batch write transactions via setValues() — avoids cell-by-cell API calls
  *   ✅ Dynamic column mapping — safe against manual column reordering
  *   ✅ SHA-256 password hashing for user authentication
- *   ✅ Admin email OTP via MailApp (theesquire2020@gmail.com)
+ *   ✅ Admin registration OTP via MailApp (one-time; login is email + password only)
  *   ✅ Email notifications: donor thank-you, low stock alerts, fee reminders
  *   ✅ CORS-safe JSON responses
  *   ✅ Structured error handling with detailed messages
@@ -48,7 +48,7 @@ const LOW_STOCK_THRESHOLD = 10;     // Units below this trigger a low-stock emai
  */
 const SCHEMAS = {
   "Users":            ["email", "passwordHash", "role", "fullName", "createdDate"],
-  "Children":         ["id", "name", "age", "gender", "entryDate", "guardianName", "guardianPhone", "roomNumber", "bedNumber", "status"],
+  "Children":         ["id", "name", "age", "gender", "entryDate", "guardianName", "guardianPhone", "roomNumber", "bedNumber", "status", "portraitUrl"],
   "Rooms":            ["roomNumber", "capacity", "occupancy", "genderType", "notes"],
   "Food_Inventory":   ["id", "itemName", "category", "stockIn", "stockOut", "currentStock", "unit", "expiryDate", "wastage", "notes"],
   "Daily_Meals":      ["id", "date", "mealType", "plannedItems", "calories", "proteins", "carbs", "fats", "costPerChild", "notes"],
@@ -140,8 +140,8 @@ function doGet(e) {
  *
  * Supported actions:
  *   registerUser      → Register a new Staff / Donor user.
- *   loginUser         → Authenticate; triggers OTP for Admin.
- *   verifyAdminOTP    → Confirm 6-digit OTP, complete Admin login.
+ *   loginUser         → Authenticate with email and password (all roles).
+ *   verifyAdminOTP    → Confirm 6-digit OTP to complete Admin registration.
  *   saveRecord        → Upsert a row (insert or update by primary key).
  *   deleteRecord      → Delete a row by key value.
  *   bulkSave          → Save multiple records in one request.
@@ -322,6 +322,38 @@ function registerUser(ss, body) {
     }
   }
 
+  // Admin accounts require one-time OTP approval before the account is created
+  if (role === "Admin") {
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const cache = CacheService.getScriptCache();
+    const pending = JSON.stringify({
+      email: email,
+      passwordHash: hashPassword(password),
+      fullName: fullName,
+      role: role
+    });
+    cache.put("OTP_REG_" + ADMIN_EMAIL, otp, 300);
+    cache.put("OTP_REG_PENDING_" + ADMIN_EMAIL, pending, 300);
+
+    try {
+      MailApp.sendEmail({
+        to:      ADMIN_EMAIL,
+        subject: "🔐 OrphanCare Cloud — Admin Registration Verification Code",
+        body:    buildAdminRegistrationOTPEmail(fullName, email, otp)
+      });
+    } catch (mailErr) {
+      cache.remove("OTP_REG_" + ADMIN_EMAIL);
+      cache.remove("OTP_REG_PENDING_" + ADMIN_EMAIL);
+      return err("Could not send OTP email: " + mailErr.toString());
+    }
+
+    return ok({
+      otpRequired: true,
+      message: "OTP sent to super admin email. Enter the code to complete Admin registration.",
+      otpEmail: ADMIN_EMAIL
+    });
+  }
+
   const newRow = headers.map(h => {
     if (h === "email")        return email;
     if (h === "passwordHash") return hashPassword(password);
@@ -382,61 +414,68 @@ function loginUser(ss, body) {
   const role     = rows[userRow][roleIdx].toString();
   const fullName = rows[userRow][nameIdx].toString();
 
-  // Admin — trigger OTP flow (OTP always sent to super admin email for control)
-  if (role === "Admin") {
-    const otp = String(Math.floor(100000 + Math.random() * 900000));
-    CacheService.getScriptCache().put("OTP_" + ADMIN_EMAIL, otp, 300); // 5-min TTL - always use super admin email
-    CacheService.getScriptCache().put("OTP_USER_" + ADMIN_EMAIL, email, 300); // Store which admin registered
-
-    try {
-      MailApp.sendEmail({
-        to:      ADMIN_EMAIL,
-        subject: "🔐 OrphanCare Cloud — Admin Verification Code",
-        body:    buildOTPEmail(otp)
-      });
-    } catch (mailErr) {
-      return err("Could not send OTP email: " + mailErr.toString());
-    }
-
-    return ok({ otpRequired: true, message: "OTP sent to super admin email", otpEmail: ADMIN_EMAIL, registeredAdmin: email });
-  }
-
-  // Staff / Donor — direct login
+  // All roles — email and password only (Admin OTP is required once at registration)
   return ok({ otpRequired: false, user: { email, role, fullName } });
 }
 
 function verifyAdminOTP(ss, body) {
   const otp   = (body.otp || "").trim();
   const cache = CacheService.getScriptCache();
-  const stored = cache.get("OTP_" + ADMIN_EMAIL);
+  const stored = cache.get("OTP_REG_" + ADMIN_EMAIL);
+  const pendingJson = cache.get("OTP_REG_PENDING_" + ADMIN_EMAIL);
 
   if (!otp)              return err("Verification code is required.");
-  if (!stored)           return err("OTP has expired. Please sign in again to receive a new code.");
+  if (!stored || !pendingJson) {
+    return err("OTP has expired. Please register again to receive a new code.");
+  }
   if (stored !== otp)    return err("Invalid verification code. Please check your email and try again.");
 
-  // Get the registered admin email that was stored during login BEFORE removing
-  const registeredAdminEmail = cache.get("OTP_USER_" + ADMIN_EMAIL) || ADMIN_EMAIL;
-  
-  cache.remove("OTP_" + ADMIN_EMAIL);
-  cache.remove("OTP_USER_" + ADMIN_EMAIL);
+  let pending;
+  try {
+    pending = JSON.parse(pendingJson);
+  } catch (_) {
+    return err("Registration session is invalid. Please sign up again.");
+  }
 
-  // Fetch Admin profile to return
+  cache.remove("OTP_REG_" + ADMIN_EMAIL);
+  cache.remove("OTP_REG_PENDING_" + ADMIN_EMAIL);
+
   const sheetsMap = buildSheetsMap(ss);
   const sheet     = getOrCreateSheet(ss, "Users", sheetsMap);
   const rows      = sheet.getDataRange().getValues();
   const headers   = rows[0];
   const emailIdx  = headers.indexOf("email");
-  const nameIdx   = headers.indexOf("fullName");
 
-  let adminName = "System Admin";
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][emailIdx].toString().toLowerCase() === registeredAdminEmail.toLowerCase()) {
-      adminName = rows[i][nameIdx].toString();
-      break;
+    if (rows[i][emailIdx].toString().toLowerCase() === pending.email) {
+      return err("This email is already registered. Please sign in.");
     }
   }
 
-  return ok({ user: { email: registeredAdminEmail, role: "Admin", fullName: adminName } });
+  const newRow = headers.map(h => {
+    if (h === "email")        return pending.email;
+    if (h === "passwordHash") return pending.passwordHash;
+    if (h === "role")         return pending.role || "Admin";
+    if (h === "fullName")     return pending.fullName;
+    if (h === "createdDate")  return isoDate();
+    return "";
+  });
+
+  sheet.appendRow(newRow);
+  evictCache("Users");
+
+  try {
+    MailApp.sendEmail({
+      to:      pending.email,
+      subject: "🏠 Welcome to OrphanCare Cloud — Admin Registration Confirmed",
+      body:    buildWelcomeEmail(pending.fullName, "Admin")
+    });
+  } catch (_) { /* non-fatal */ }
+
+  return ok({
+    registrationComplete: true,
+    user: { email: pending.email, role: "Admin", fullName: pending.fullName }
+  });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -455,6 +494,36 @@ function verifyAdminOTP(ss, body) {
  *   5. Evict cache for this sheet only.
  *   6. Send any applicable notifications (low stock, fee overdue, new donation).
  */
+
+/**
+ * Append any SCHEMAS columns missing from an existing sheet header row.
+ * Returns the up-to-date header array.
+ */
+function ensureSheetSchemaHeaders(sheet, sheetName) {
+  const schemaHeaders = SCHEMAS[sheetName];
+  if (!schemaHeaders || !schemaHeaders.length) return [];
+
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  let headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (!headers || !headers.length) {
+    sheet.getRange(1, 1, 1, schemaHeaders.length).setValues([schemaHeaders]);
+    return schemaHeaders.slice();
+  }
+
+  const missing = schemaHeaders.filter(function(h) {
+    return !headers.some(function(x) {
+      return String(x).toLowerCase() === String(h).toLowerCase();
+    });
+  });
+
+  if (missing.length > 0) {
+    sheet.getRange(1, headers.length + 1, 1, missing.length).setValues([missing]);
+    headers = headers.concat(missing);
+  }
+
+  return headers;
+}
+
 function saveRecord(ss, body) {
   const sheetName = body.sheetName;
   const record    = body.record;
@@ -472,8 +541,8 @@ function saveRecord(ss, body) {
 
   const sheetsMap = buildSheetsMap(ss);
   const sheet     = getOrCreateSheet(ss, sheetName, sheetsMap);
+  const headers   = ensureSheetSchemaHeaders(sheet, sheetName);
   const allValues = sheet.getDataRange().getValues();
-  const headers   = allValues[0];
   
   // Find key index case-insensitively in sheet headers
   let keyIdx = headers.indexOf(actualKeyCol);
@@ -1088,8 +1157,8 @@ function evictAllCache() {
     const keys = Object.keys(SCHEMAS).map(n => CACHE_PFX + n);
     CacheService.getScriptCache().removeAll(keys);
     // Also remove OTP keys if present
-    CacheService.getScriptCache().remove("OTP_" + ADMIN_EMAIL);
-    CacheService.getScriptCache().remove("OTP_USER_" + ADMIN_EMAIL);
+    CacheService.getScriptCache().remove("OTP_REG_" + ADMIN_EMAIL);
+    CacheService.getScriptCache().remove("OTP_REG_PENDING_" + ADMIN_EMAIL);
   } catch (_) {}
 }
 
@@ -1151,12 +1220,15 @@ OrphanCare Cloud Team
 This is an automated security message.`;
 }
 
-function buildOTPEmail(otp) {
+function buildAdminRegistrationOTPEmail(fullName, email, otp) {
   return `Hello Super Admin,
 
-A new admin is attempting to login to OrphanCare Cloud. 
+A new Admin account registration is pending your approval on OrphanCare Cloud.
 
-Your verification code to approve this login is:
+  Applicant Name  : ${fullName}
+  Applicant Email : ${email}
+
+Your verification code to approve this registration is:
 
   ┌─────────────────┐
   │   ${otp}   │
@@ -1164,8 +1236,8 @@ Your verification code to approve this login is:
 
 This code expires in 5 minutes.
 
-Only share this code with the new admin if you authorize their access.
-If you did not authorize this login attempt, please ignore this email.
+Share this code with the applicant only if you authorize their Admin access.
+If you did not expect this registration, ignore this email.
 
 OrphanCare Security Engine`;
 }
