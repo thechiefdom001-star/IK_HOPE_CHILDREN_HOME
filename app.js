@@ -8,6 +8,8 @@ let state = {
    currentUser: null,
    activeTab: 'dashboard',
    activeFoodSubTab: 'meals',
+   activeDocumentsFilter: 'all',
+   pendingDocumentDataUrl: '',
    activeSchoolSubTab: 'enrollment',
    activeMedicalSubTab: 'profiles',
    activeFinanceSubTab: 'ledger',
@@ -56,7 +58,8 @@ let state = {
     finances: [],
     donations: [],
     app_settings: [],
-    users: []
+    users: [],
+    documents: []
   }
 };
 
@@ -85,7 +88,8 @@ const EMPTY_DB = {
   finances: [],
   donations: [],
   app_settings: [],
-  users: []
+  users: [],
+  documents: []
 };
 
 function isMobileViewport() {
@@ -142,7 +146,8 @@ const SHEET_NAME_MAP = {
   'Medical_Records': 'medical_records',
   'Finances': 'finances',
   'Donations': 'donations',
-  'App_Settings': 'app_settings'
+  'App_Settings': 'app_settings',
+  'Documents': 'documents'
 };
 
 function getFrontendSheetKey(backendSheetName) {
@@ -909,7 +914,7 @@ function applyRoleBasedVisibility() {
     
     // Define tab permissions
     const permissions = {
-      'Admin': ['dashboard', 'home', 'food', 'school', 'medical', 'finances', 'donors', 'settings'],
+      'Admin': ['dashboard', 'home', 'food', 'school', 'medical', 'finances', 'donors', 'documents', 'settings'],
       'Staff': ['dashboard', 'home', 'food', 'school', 'medical'],
       'Donor-Viewer': ['dashboard', 'food', 'donors']
     };
@@ -1103,6 +1108,27 @@ function normalizeData(sheetName, data) {
         dispensedMedsJson: item.DispensedMedsJson || item.dispensedMedsJson || [],
         DispensedMedsJson: item.DispensedMedsJson || item.dispensedMedsJson || [],
         LastModified: item.LastModified || item.lastModified || new Date().toISOString()
+      };
+    }
+
+    if (sheetName === 'documents') {
+      return {
+        id: item.id || item.ID,
+        ID: item.id || item.ID,
+        title: item.title || item.Title || 'Untitled',
+        Title: item.title || item.Title || 'Untitled',
+        category: item.category || item.Category || 'URL',
+        Category: item.category || item.Category || 'URL',
+        resourceUrl: item.resourceUrl || item.ResourceUrl || item.url || item.URL || '',
+        ResourceUrl: item.resourceUrl || item.ResourceUrl || item.url || item.URL || '',
+        mimeType: item.mimeType || item.MimeType || '',
+        MimeType: item.mimeType || item.MimeType || '',
+        notes: item.notes || item.Notes || '',
+        Notes: item.notes || item.Notes || '',
+        uploadedBy: item.uploadedBy || item.UploadedBy || '',
+        UploadedBy: item.uploadedBy || item.UploadedBy || '',
+        uploadedDate: item.uploadedDate || item.UploadedDate || '',
+        UploadedDate: item.uploadedDate || item.UploadedDate || ''
       };
     }
     
@@ -1470,6 +1496,19 @@ function setupEventListeners() {
     state.activeFinanceSubTab = subTabId;
     renderFinanceTab();
   });
+
+  document.querySelectorAll('#documents-sub-tabs .sub-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#documents-sub-tabs .sub-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      switchDocumentsFilter(btn.dataset.docfilter || 'all');
+    });
+  });
+
+  const documentFileInput = document.getElementById('document-form-file');
+  if (documentFileInput) {
+    documentFileInput.addEventListener('change', handleDocumentFileChange);
+  }
   
   // Color Picker Change Listeners (visual preview update)
   const primaryInput = document.getElementById('settings-primary-color');
@@ -1673,6 +1712,7 @@ function renderActiveTab() {
     'medical': { title: 'Medical Clinic & Logs', desc: 'Dispense medicine, manage health files, and schedule vaccines' },
     'finances': { title: 'Financial Treasury', desc: 'Record donations, ledger expenditures, and print auditing bills' },
     'donors': { title: 'Transparency & Donors', desc: 'Impact ratios, public transparent feeds, and tax-receipt generation' },
+    'documents': { title: 'Documents Vault', desc: 'Upload PDFs, images, photo gallery entries, and document URLs stored in the cloud' },
     'settings': { title: 'Database & Settings', desc: 'Configure cloud Apps Script endpoint and manage security credentials' }
   };
   
@@ -1703,6 +1743,9 @@ function renderActiveTab() {
       break;
     case 'donors':
       renderDonorsTab();
+      break;
+    case 'documents':
+      renderDocumentsTab();
       break;
     case 'settings':
       renderSettingsTab();
@@ -4610,6 +4653,310 @@ function showToast(message, type = 'info') {
   }, 3500);
 }
 
+// --- DOCUMENTS VAULT (ADMIN) ---
+const MAX_DOCUMENT_BYTES = 2.5 * 1024 * 1024;
+
+function getDocumentView(doc) {
+  return {
+    id: doc.id || doc.ID,
+    title: doc.title || doc.Title || 'Untitled',
+    category: doc.category || doc.Category || 'URL',
+    resourceUrl: doc.resourceUrl || doc.ResourceUrl || '',
+    mimeType: doc.mimeType || doc.MimeType || '',
+    notes: doc.notes || doc.Notes || '',
+    uploadedBy: doc.uploadedBy || doc.UploadedBy || '',
+    uploadedDate: doc.uploadedDate || doc.UploadedDate || ''
+  };
+}
+
+function isDocumentImage(doc) {
+  const view = getDocumentView(doc);
+  if (view.category === 'Image' || view.category === 'Gallery') return true;
+  return (view.mimeType || '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(view.resourceUrl);
+}
+
+function isDocumentPdf(doc) {
+  const view = getDocumentView(doc);
+  if (view.category === 'PDF') return true;
+  return (view.mimeType || '').includes('pdf') || /\.pdf($|\?)/i.test(view.resourceUrl);
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderDocumentsTab() {
+  const grid = document.getElementById('documents-grid');
+  const emptyMsg = document.getElementById('documents-empty-msg');
+  if (!grid) return;
+
+  const filter = state.activeDocumentsFilter || 'all';
+  let list = (state.db.documents || []).map(getDocumentView);
+
+  if (filter !== 'all') {
+    list = list.filter(d => d.category === filter);
+  }
+
+  list.sort((a, b) => {
+    const da = new Date(a.uploadedDate);
+    const db = new Date(b.uploadedDate);
+    return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
+  });
+
+  grid.innerHTML = '';
+
+  if (list.length === 0) {
+    if (emptyMsg) emptyMsg.style.display = 'block';
+    applyRoleBasedVisibility();
+    return;
+  }
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  list.forEach(doc => {
+    const docId = doc.id;
+    let thumbHtml = '<div class="document-card-icon">📄</div>';
+    const url = doc.resourceUrl;
+
+    if (isDocumentImage(doc) && url) {
+      thumbHtml = `<img src="${escapeHtml(url)}" alt="" class="document-card-thumb" loading="lazy">`;
+    } else if (isDocumentPdf(doc)) {
+      thumbHtml = '<div class="document-card-icon document-card-icon-pdf">PDF</div>';
+    } else if (doc.category === 'URL') {
+      thumbHtml = '<div class="document-card-icon document-card-icon-link">🔗</div>';
+    }
+
+    const card = document.createElement('article');
+    card.className = 'document-card';
+    card.innerHTML = `
+      <div class="document-card-preview">${thumbHtml}</div>
+      <div class="document-card-body">
+        <h4 class="document-card-title">${escapeHtml(doc.title)}</h4>
+        <span class="badge badge-info">${escapeHtml(doc.category)}</span>
+        <p class="document-card-meta">${escapeHtml(doc.uploadedDate || '—')} · ${escapeHtml(doc.uploadedBy || 'Admin')}</p>
+        ${doc.notes ? `<p class="document-card-notes">${escapeHtml(doc.notes)}</p>` : ''}
+        <div class="document-card-actions">
+          <button type="button" class="btn btn-secondary btn-icon-only" onclick="viewDocument('${docId}')" title="View">
+            <svg viewBox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          </button>
+          <button type="button" class="btn btn-secondary btn-icon-only admin-only" onclick="editDocumentModal('${docId}')" title="Edit">
+            <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7m-8.5-4.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L14.5 7.5z"/></svg>
+          </button>
+          <button type="button" class="btn btn-danger btn-icon-only admin-only" onclick="deleteDocument('${docId}')" title="Delete">
+            <svg viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        </div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+
+  applyRoleBasedVisibility();
+}
+
+function switchDocumentsFilter(filter) {
+  state.activeDocumentsFilter = filter;
+  document.querySelectorAll('#documents-sub-tabs .sub-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.docfilter === filter);
+  });
+  renderDocumentsTab();
+}
+
+function toggleDocumentFormFields() {
+  const category = document.getElementById('document-form-category').value;
+  const fileGroup = document.getElementById('document-form-file-group');
+  const urlGroup = document.getElementById('document-form-url-group');
+  const fileInput = document.getElementById('document-form-file');
+
+  if (category === 'URL') {
+    fileGroup.style.display = 'none';
+    urlGroup.style.display = 'block';
+    if (fileInput) fileInput.required = false;
+  } else {
+    fileGroup.style.display = 'block';
+    urlGroup.style.display = 'none';
+    if (fileInput) {
+      fileInput.required = !state.pendingDocumentDataUrl;
+      if (category === 'PDF') fileInput.accept = '.pdf,application/pdf';
+      else fileInput.accept = 'image/png,image/jpeg,image/jpg,.png,.jpg,.jpeg';
+    }
+  }
+}
+
+function updateDocumentPreview(url, mimeType) {
+  const wrap = document.getElementById('document-form-preview-wrap');
+  const preview = document.getElementById('document-form-preview');
+  if (!wrap || !preview) return;
+
+  if (!url) {
+    wrap.style.display = 'none';
+    preview.innerHTML = '';
+    return;
+  }
+
+  wrap.style.display = 'block';
+  if ((mimeType || '').startsWith('image/') || isDocumentImage({ category: 'Image', resourceUrl: url, mimeType })) {
+    preview.innerHTML = `<img src="${url}" alt="Preview" class="document-preview-img">`;
+  } else if ((mimeType || '').includes('pdf') || url.startsWith('data:application/pdf')) {
+    preview.innerHTML = `<iframe src="${url}" class="document-preview-frame" title="PDF preview"></iframe>`;
+  } else {
+    preview.innerHTML = `<p style="font-size:0.8rem; word-break:break-all">${escapeHtml(url)}</p>`;
+  }
+}
+
+function handleDocumentFileChange(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    showToast('File is too large. Maximum size is 2.5MB.', 'warning');
+    event.target.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.pendingDocumentDataUrl = reader.result || '';
+    updateDocumentPreview(state.pendingDocumentDataUrl, file.type);
+  };
+  reader.readAsDataURL(file);
+}
+
+function showAddDocumentModal() {
+  document.getElementById('document-modal-title').innerText = 'Upload / Add Document';
+  document.getElementById('document-form-id').value = 'doc_' + Date.now().toString().substr(-8);
+  document.getElementById('document-form-title').value = '';
+  document.getElementById('document-form-category').value = 'PDF';
+  document.getElementById('document-form-file').value = '';
+  document.getElementById('document-form-url').value = '';
+  document.getElementById('document-form-notes').value = '';
+  state.pendingDocumentDataUrl = '';
+  updateDocumentPreview('');
+  toggleDocumentFormFields();
+  openModal('document-modal');
+}
+
+function editDocumentModal(id) {
+  const raw = state.db.documents.find(d => (d.id || d.ID).toString() === id.toString());
+  if (!raw) return;
+  const doc = getDocumentView(raw);
+
+  document.getElementById('document-modal-title').innerText = 'Edit Document';
+  document.getElementById('document-form-id').value = doc.id;
+  document.getElementById('document-form-title').value = doc.title;
+  document.getElementById('document-form-category').value = doc.category;
+  document.getElementById('document-form-notes').value = doc.notes;
+  document.getElementById('document-form-url').value = doc.category === 'URL' ? doc.resourceUrl : '';
+  document.getElementById('document-form-file').value = '';
+  state.pendingDocumentDataUrl = doc.category !== 'URL' ? doc.resourceUrl : '';
+  updateDocumentPreview(state.pendingDocumentDataUrl, doc.mimeType);
+  toggleDocumentFormFields();
+  openModal('document-modal');
+}
+
+async function saveDocumentSubmit() {
+  const id = document.getElementById('document-form-id').value;
+  const title = document.getElementById('document-form-title').value.trim();
+  const category = document.getElementById('document-form-category').value;
+  const notes = document.getElementById('document-form-notes').value.trim();
+  const externalUrl = document.getElementById('document-form-url').value.trim();
+
+  if (!title) {
+    showToast('Document title is required.', 'warning');
+    return;
+  }
+
+  let resourceUrl = '';
+  let mimeType = '';
+
+  if (category === 'URL') {
+    if (!externalUrl) {
+      showToast('Please enter a document URL.', 'warning');
+      return;
+    }
+    resourceUrl = externalUrl;
+    mimeType = 'text/uri-list';
+  } else {
+    resourceUrl = state.pendingDocumentDataUrl || '';
+    if (!resourceUrl) {
+      showToast('Please upload a file or keep the existing file when editing.', 'warning');
+      return;
+    }
+    const fileInput = document.getElementById('document-form-file');
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+      mimeType = fileInput.files[0].type;
+    } else if (resourceUrl.startsWith('data:')) {
+      const match = resourceUrl.match(/^data:([^;]+);/);
+      mimeType = match ? match[1] : '';
+    }
+    if (category === 'PDF' && !mimeType.includes('pdf') && !resourceUrl.includes('pdf')) {
+      showToast('Please upload a valid PDF file.', 'warning');
+      return;
+    }
+  }
+
+  const record = {
+    id: id,
+    ID: id,
+    title: title,
+    Title: title,
+    category: category,
+    Category: category,
+    resourceUrl: resourceUrl,
+    ResourceUrl: resourceUrl,
+    mimeType: mimeType,
+    MimeType: mimeType,
+    notes: notes,
+    Notes: notes,
+    uploadedBy: state.currentUser ? (state.currentUser.email || 'Admin') : 'Admin',
+    UploadedBy: state.currentUser ? (state.currentUser.email || 'Admin') : 'Admin',
+    uploadedDate: new Date().toISOString().substring(0, 10),
+    UploadedDate: new Date().toISOString().substring(0, 10)
+  };
+
+  closeModal();
+  state.pendingDocumentDataUrl = '';
+  await cloudSaveRecord('Documents', record, 'id');
+  showToast('Document saved to cloud sheet.', 'success');
+}
+
+function viewDocument(id) {
+  const raw = state.db.documents.find(d => (d.id || d.ID).toString() === id.toString());
+  if (!raw) return;
+  const doc = getDocumentView(raw);
+  const body = document.getElementById('document-view-body');
+  const titleEl = document.getElementById('document-view-title');
+  const openLink = document.getElementById('document-view-open-link');
+
+  titleEl.innerText = doc.title;
+  openLink.href = doc.resourceUrl || '#';
+
+  if (isDocumentImage(doc) && doc.resourceUrl) {
+    body.innerHTML = `<img src="${doc.resourceUrl}" alt="${escapeHtml(doc.title)}" class="document-view-img">`;
+  } else if (isDocumentPdf(doc) && doc.resourceUrl) {
+    body.innerHTML = `<iframe src="${doc.resourceUrl}" class="document-view-frame" title="${escapeHtml(doc.title)}"></iframe>`;
+  } else if (doc.category === 'URL') {
+    body.innerHTML = `
+      <p style="margin-bottom:12px">External document link:</p>
+      <a href="${escapeHtml(doc.resourceUrl)}" target="_blank" rel="noopener" style="word-break:break-all; color:var(--primary)">${escapeHtml(doc.resourceUrl)}</a>
+      ${doc.notes ? `<p style="margin-top:16px; font-size:0.85rem">${escapeHtml(doc.notes)}</p>` : ''}
+    `;
+  } else {
+    body.innerHTML = `<p style="color:var(--text-muted)">No preview available. Use Open in New Tab.</p>`;
+  }
+
+  openModal('document-view-modal');
+}
+
+async function deleteDocument(id) {
+  if (!confirm('Delete this document from the vault?')) return;
+  await cloudDeleteRecord('Documents', 'id', id);
+  renderDocumentsTab();
+}
+
 // --- Initialize empty database ---
 function loadMockDatabase() {
   state.db = {
@@ -4624,6 +4971,7 @@ function loadMockDatabase() {
     finances: [],
     donations: [],
     app_settings: [],
-    users: []
+    users: [],
+    documents: []
   };
 }

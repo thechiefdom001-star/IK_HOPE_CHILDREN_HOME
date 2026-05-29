@@ -532,6 +532,134 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: 0.02em;
 }
 
+/* Documents vault */
+.documents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.document-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+}
+
+.document-card-preview {
+  background: var(--card-bg-hover);
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.document-card-thumb {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  display: block;
+}
+
+.document-card-icon {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  padding: 24px;
+}
+
+.document-card-icon-pdf {
+  color: var(--danger);
+  font-size: 1.4rem;
+  letter-spacing: 0.05em;
+}
+
+.document-card-icon-link {
+  font-size: 2.2rem;
+}
+
+.document-card-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.document-card-title {
+  font-size: 1rem;
+  line-height: 1.3;
+  color: var(--text-main);
+}
+
+.document-card-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.document-card-notes {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.document-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.document-preview-box {
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 120px;
+  background: var(--card-bg);
+}
+
+.document-preview-img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  display: block;
+  margin: 0 auto;
+}
+
+.document-preview-frame {
+  width: 100%;
+  height: 220px;
+  border: none;
+  border-radius: 8px;
+}
+
+.document-view-img {
+  max-width: 100%;
+  max-height: 70vh;
+  display: block;
+  margin: 0 auto;
+  border-radius: 12px;
+}
+
+.document-view-frame {
+  width: 100%;
+  height: 70vh;
+  border: none;
+  border-radius: 12px;
+  background: #fff;
+}
+
+@media (max-width: 768px) {
+  .documents-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .metric-info h3 {
   font-size: 0.8rem;
   color: var(--text-muted);

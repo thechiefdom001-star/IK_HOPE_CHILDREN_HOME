@@ -58,6 +58,7 @@ const SCHEMAS = {
   "Medical_Records":  ["childId", "bloodType", "allergies", "chronicConditions", "vaccinationsJson", "doctorVisitsJson", "dispensedMedsJson"],
   "Finances":         ["id", "date", "type", "category", "amount", "description", "receiptUrl", "allocatedTo"],
   "Donations":        ["id", "donorName", "donorEmail", "date", "amount", "donationType", "allocatedTo", "thanked", "receiptUrl"],
+  "Documents":        ["id", "title", "category", "resourceUrl", "mimeType", "notes", "uploadedBy", "uploadedDate"],
   "App_Settings":     ["key", "value"]
 };
 
@@ -74,6 +75,7 @@ const PRIMARY_KEYS = {
   "Medical_Records":   "childId",
   "Finances":          "id",
   "Donations":         "id",
+  "Documents":         "id",
   "App_Settings":      "key"
 };
 
