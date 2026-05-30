@@ -63,7 +63,7 @@ let state = {
   }
 };
 
-const DEFAULT_GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzWuTjfetPnlwBH6OMJdc5EPjecEdhDg8UMCsVKzgm5xZz9XroeIFT-EEsdubrbHEnv/exec';
+const DEFAULT_GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbw1ylUVZ9AKOAnf9sRkvp-riHSWbxyaWSmWN_BLJz7KNEeDk9bZZ2PkBAt-mYJh7Qed/exec';
 const DEFAULT_ADMIN_OTP_EMAIL = 'theesquire2020@gmail.com';
 const DEFAULT_PRINT_PROFILE = {
   name: 'OrphanCare Children Home',
@@ -165,6 +165,9 @@ function updateAllLogos() {
   const logoValue = (state.printProfile.logo || DEFAULT_PRINT_PROFILE.logo || '❤').toString();
   const nameValue = (state.printProfile.name || DEFAULT_PRINT_PROFILE.name || 'OrphanCare').toString();
   
+  // Update browser window title
+  document.title = `${nameValue} - Premium Orphanage Management System`;
+
   // Update startup loader logo
   const loaderLogo = document.querySelector('.loader-logo');
   if (loaderLogo) {
@@ -175,6 +178,12 @@ function updateAllLogos() {
     }
   }
   
+  // Update startup loader text
+  const loaderText = document.querySelector('.loader-text');
+  if (loaderText) {
+    loaderText.innerText = `Loading ${nameValue}...`;
+  }
+  
   // Update login form logo
   const loginLogo = document.querySelector('#login-overlay .logo-icon');
   if (loginLogo) {
@@ -183,6 +192,12 @@ function updateAllLogos() {
     } else {
       loginLogo.innerHTML = logoValue;
     }
+  }
+
+  // Update login form title
+  const loginTitle = document.querySelector('#login-overlay .login-header h2');
+  if (loginTitle) {
+    loginTitle.innerText = `${nameValue} Cloud`;
   }
   
   // Update sidebar logo
@@ -378,22 +393,25 @@ async function saveAllAppSettingsToSheet() {
     return;
   }
 
-  const settingsPairs = [
-    ['google_sheets_url', state.googleSheetsUrl],
-    ['display_currency', state.displayCurrency],
-    ['exchange_rates', JSON.stringify(state.exchangeRates)],
-    ['theme_primary', collected.primaryColor],
-    ['theme_secondary', collected.secondaryColor],
-    ['print_profile_json', JSON.stringify(getCurrentPrintProfile())],
-    ['admin_otp_email', state.adminOtpEmail || DEFAULT_ADMIN_OTP_EMAIL]
+  const settingsRecords = [
+    makeAppSetting('google_sheets_url', state.googleSheetsUrl),
+    makeAppSetting('display_currency', state.displayCurrency),
+    makeAppSetting('exchange_rates', JSON.stringify(state.exchangeRates)),
+    makeAppSetting('theme_primary', collected.primaryColor),
+    makeAppSetting('theme_secondary', collected.secondaryColor),
+    makeAppSetting('print_profile_json', JSON.stringify(getCurrentPrintProfile())),
+    makeAppSetting('admin_otp_email', state.adminOtpEmail || DEFAULT_ADMIN_OTP_EMAIL),
+    makeAppSetting('orphanage_logo', collected.logo),
+    makeAppSetting('orphanage_name', collected.name),
+    makeAppSetting('orphanage_address', collected.address),
+    makeAppSetting('orphanage_phone', collected.phone),
+    makeAppSetting('orphanage_email', collected.email)
   ];
 
   showHUD(true, 'Publishing all settings to App_Settings sheet…');
 
   try {
-    for (const [settingKey, settingValue] of settingsPairs) {
-      await cloudSaveRecord('App_Settings', makeAppSetting(settingKey, settingValue), 'key');
-    }
+    await cloudBulkSaveRecords('App_Settings', settingsRecords, 'key');
 
     persistAppSettingsLocally(collected.primaryColor, collected.secondaryColor);
     applyThemeColors(collected.primaryColor, collected.secondaryColor);
@@ -1369,24 +1387,27 @@ function findRecordIndexByKey(list, keyColumn, keyValue) {
 async function cloudSaveRecord(sheetName, record, keyColumn = 'id') {
   const sheetKey = getFrontendSheetKey(sheetName);
   const backendSheetName = getBackendSheetName(sheetKey);
-  
+
   // Normalize the record to ensure both frontend properties and backend schema keys are populated
   const normalizedList = normalizeData(sheetKey, [record]);
   const normalizedRecord = (normalizedList && normalizedList.length > 0) ? normalizedList[0] : record;
-  
-  // Update locally first
+
+  // --- UPDATE LOCALLY FIRST (non-blocking) ---
   const list = state.db[sheetKey];
   const recordKeyValue = getFieldValueByVariants(normalizedRecord, keyColumn);
   const index = recordKeyValue !== undefined ? findRecordIndexByKey(list, keyColumn, recordKeyValue) : -1;
-  
+
   if (index !== -1) {
     list[index] = { ...list[index], ...normalizedRecord };
   } else {
     list.push(normalizedRecord);
   }
-  
+
+  // Re-render immediately — user sees the update with NO gray-out
+  renderActiveTab();
+
   if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
-    showHUD(true, `Saving record to ${backendSheetName} Cloud...`);
+    // Sync to cloud silently in the background
     try {
       const res = await postCloudAction({
         action: 'saveRecord',
@@ -1408,30 +1429,80 @@ async function cloudSaveRecord(sheetName, record, keyColumn = 'id') {
       } else {
         showToast(`Cloud write failed: ${err.message}. Stored locally.`, 'warning');
       }
-    } finally {
-      showHUD(false);
     }
   } else {
     showToast(`Stored locally inside offline workspace.`, 'info');
   }
-  
+}
+
+/**
+ * Sends a bulk Save POST request to the Apps Script Endpoint.
+ * If sheets are offline, saves to local store immediately.
+ */
+async function cloudBulkSaveRecords(sheetName, records, keyColumn = 'id') {
+  const sheetKey = getFrontendSheetKey(sheetName);
+  const backendSheetName = getBackendSheetName(sheetKey);
+
+  // Normalize records
+  const normalizedRecords = normalizeData(sheetKey, records);
+
+  // --- UPDATE LOCALLY FIRST (non-blocking) ---
+  const list = state.db[sheetKey];
+  for (const normRecord of normalizedRecords) {
+    const recordKeyValue = getFieldValueByVariants(normRecord, keyColumn);
+    const index = recordKeyValue !== undefined ? findRecordIndexByKey(list, keyColumn, recordKeyValue) : -1;
+    if (index !== -1) {
+      list[index] = { ...list[index], ...normRecord };
+    } else {
+      list.push(normRecord);
+    }
+  }
+
+  // Re-render immediately — no gray-out
   renderActiveTab();
+
+  if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
+    // Sync to cloud silently in the background
+    try {
+      const res = await postCloudAction({
+        action: 'bulkSave',
+        sheetName: backendSheetName,
+        records: normalizedRecords,
+        keyColumn: keyColumn
+      });
+      if (!res || !res.success) {
+        console.error('Cloud bulk save error:', res ? res.error : 'No response');
+        throw new Error(res ? (res.error || res.message || 'Unknown error') : 'No response from server');
+      }
+      state.dbConnected = true;
+      updateConnectionIndicator('online', 'Connected to Cloud');
+      showToast(`${sheetName} records updated online!`, 'success');
+    } catch (err) {
+      console.error('Cloud bulk save failed:', err);
+      showToast(`Cloud bulk write failed: ${err.message}. Stored locally.`, 'warning');
+    }
+  } else {
+    showToast(`Stored locally inside offline workspace.`, 'info');
+  }
 }
 
 /**
  * Sends a delete row POST request to Apps Script.
  */
 async function cloudDeleteRecord(sheetName, keyColumn, keyValue) {
-  // Delete locally first
+  // --- DELETE LOCALLY FIRST (non-blocking) ---
   const sheetKey = getFrontendSheetKey(sheetName);
   const backendSheetName = getBackendSheetName(sheetKey);
   state.db[sheetKey] = state.db[sheetKey].filter(item => {
     const value = getFieldValueByVariants(item, keyColumn);
     return !value || value.toString() !== keyValue.toString();
   });
-  
+
+  // Re-render immediately — no gray-out
+  renderActiveTab();
+
   if (state.googleSheetsUrl && state.googleSheetsUrl.trim() !== '') {
-    showHUD(true, `Deleting record from ${backendSheetName}...`);
+    // Sync deletion to cloud silently in the background
     try {
       const res = await postCloudAction({
         action: 'deleteRecord',
@@ -1450,14 +1521,36 @@ async function cloudDeleteRecord(sheetName, keyColumn, keyValue) {
       } else {
         showToast(`Cloud delete failed. Deleted locally.`, 'warning');
       }
-    } finally {
-      showHUD(false);
     }
   } else {
     showToast('Deleted locally from workspace.', 'info');
   }
-  
-  renderActiveTab();
+}
+
+// --- MOBILE SIDEBAR HELPERS ---
+function openMobileSidebar() {
+  const sidebar = document.getElementById('sidebar-container');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  sidebar.classList.add('active');
+  if (backdrop) {
+    backdrop.style.display = 'block';
+    // Force a reflow to trigger the transition
+    void backdrop.offsetWidth;
+    backdrop.classList.add('active');
+  }
+}
+
+function closeMobileSidebar() {
+  const sidebar = document.getElementById('sidebar-container');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  sidebar.classList.remove('active');
+  if (backdrop) {
+    backdrop.classList.remove('active');
+    // Hide after the fade-out transition completes
+    setTimeout(() => {
+      backdrop.style.display = 'none';
+    }, 220);
+  }
 }
 
 // --- NAVIGATION & TABS ---
@@ -1468,16 +1561,28 @@ function setupEventListeners() {
       e.preventDefault();
       const tabId = btn.closest('.nav-item').dataset.tab;
       switchTab(tabId);
-      
+
       // Close mobile sidebar if open
-      document.getElementById('sidebar-container').classList.remove('active');
+      closeMobileSidebar();
     });
   });
-  
+
   // Mobile hamburger menu toggle
   document.getElementById('hamburger-toggle').addEventListener('click', () => {
-    document.getElementById('sidebar-container').classList.toggle('active');
+    const sidebar = document.getElementById('sidebar-container');
+    const isOpen = sidebar.classList.contains('active');
+    if (isOpen) {
+      closeMobileSidebar();
+    } else {
+      openMobileSidebar();
+    }
   });
+
+  // Tap sidebar backdrop to close sidebar
+  const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+  if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener('click', () => closeMobileSidebar());
+  }
   
   // Inner Subtabs listeners
   setupSubTabs('food-sub-tabs', (subTabId) => {
@@ -4526,7 +4631,16 @@ async function savePrintProfileSettings() {
   const profilePayload = JSON.stringify(getCurrentPrintProfile());
   localStorage.setItem('oms_print_profile', profilePayload);
 
-  await cloudSaveRecord('App_Settings', makeAppSetting('print_profile_json', profilePayload), 'key');
+  const settingsRecords = [
+    makeAppSetting('print_profile_json', profilePayload),
+    makeAppSetting('orphanage_logo', logo),
+    makeAppSetting('orphanage_name', name),
+    makeAppSetting('orphanage_address', address),
+    makeAppSetting('orphanage_phone', phone),
+    makeAppSetting('orphanage_email', email)
+  ];
+
+  await cloudBulkSaveRecords('App_Settings', settingsRecords, 'key');
 
   setPrintProfileInputs(getCurrentPrintProfile());
   updateAllLogos();

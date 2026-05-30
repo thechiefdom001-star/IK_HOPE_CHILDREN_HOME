@@ -101,6 +101,7 @@ h1, h2, h3, h4, h5, h6 {
   width: 280px;
   background: var(--panel-bg);
   backdrop-filter: blur(var(--blur-radius));
+  -webkit-backdrop-filter: blur(var(--blur-radius));
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
@@ -110,8 +111,26 @@ h1, h2, h3, h4, h5, h6 {
   bottom: 0;
   left: 0;
   z-index: 100;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: var(--glass-shadow);
+  will-change: transform;
+  /* Promote to GPU compositing layer */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* Mobile sidebar backdrop dimmer */
+#sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+#sidebar-backdrop.active {
+  opacity: 1;
 }
 
 .logo-container {
@@ -1201,6 +1220,7 @@ body.light-theme .app-table tbody tr:hover {
   bottom: 0;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -1208,7 +1228,8 @@ body.light-theme .app-table tbody tr:hover {
   padding: 20px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.25s ease;
+  transition: opacity 0.2s ease;
+  will-change: opacity;
 }
 
 .modal-overlay.active {
@@ -1219,6 +1240,7 @@ body.light-theme .app-table tbody tr:hover {
 .modal-content {
   background: var(--panel-bg);
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border-color);
   border-radius: 20px;
   width: 100%;
@@ -1227,13 +1249,17 @@ body.light-theme .app-table tbody tr:hover {
   box-shadow: var(--glass-shadow);
   display: flex;
   flex-direction: column;
-  transform: translateY(20px);
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(18px);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
+  will-change: transform;
+  /* GPU layer hint */
+  -webkit-transform: translateY(18px) translateZ(0);
 }
 
 .modal-overlay.active .modal-content {
   transform: translateY(0);
+  -webkit-transform: translateY(0) translateZ(0);
 }
 
 .modal-header {
@@ -1480,20 +1506,97 @@ body.light-theme .app-table tbody tr:hover {
   letter-spacing: 0.5px;
 }
 
-/* Performance Optimizations for Mobile */
+/* ====================================================
+   MOBILE PERFORMANCE — eliminates GPU-killing blur effects
+   and forces hardware-accelerated composited layers
+   ==================================================== */
 @media (max-width: 768px) {
   * {
     -webkit-tap-highlight-color: transparent;
   }
-  
-  .metric-card, .chart-card, .btn, .nav-item a {
-    transition: none;
+
+  /* Kill ALL backdrop filters on mobile — biggest perf win */
+  .sidebar,
+  .login-card,
+  .modal-content,
+  .modal-overlay,
+  .metric-card,
+  .chart-card,
+  .table-container,
+  #loading-hud,
+  .toast {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Solid opaque replacements for all glass elements */
+  .sidebar,
+  .login-card,
+  .modal-content,
+  .metric-card,
+  .chart-card,
+  .table-container {
+    background: rgba(11, 16, 26, 0.98) !important;
+  }
+
+  .modal-overlay {
+    background: rgba(0, 0, 0, 0.72) !important;
+  }
+
+  #loading-hud {
+    background: rgba(0, 0, 0, 0.6) !important;
+  }
+
+  .toast {
+    background: rgba(18, 24, 40, 0.98) !important;
+  }
+
+  body.light-theme .sidebar,
+  body.light-theme .login-card,
+  body.light-theme .modal-content,
+  body.light-theme .metric-card,
+  body.light-theme .chart-card,
+  body.light-theme .table-container {
+    background: rgba(242, 244, 248, 0.99) !important;
+  }
+
+  /* Faster transitions on mobile */
+  .modal-overlay {
+    transition: opacity 0.15s ease !important;
+  }
+
+  .modal-content {
+    transform: translateY(12px) !important;
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  .modal-overlay.active .modal-content {
+    transform: translateY(0) !important;
+  }
+
+  .sidebar {
+    /* Solid dark background on mobile — no blur needed */
+    background: rgba(9, 13, 22, 0.99) !important;
+    transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  body.light-theme .sidebar {
+    background: rgba(245, 247, 252, 0.99) !important;
+  }
+
+  /* Disable hover/tap transitions to prevent jitter */
+  .metric-card,
+  .chart-card,
+  .btn,
+  .nav-item a {
+    transition: none !important;
   }
 
   .metric-card:hover {
     transform: none;
   }
-  
+
+  /* Touch-friendly sizing */
   .metric-value {
     font-size: 1.75rem;
   }
@@ -1513,17 +1616,19 @@ body.light-theme .app-table tbody tr:hover {
   .metric-icon-wrapper {
     align-self: flex-end;
   }
-  
+
   .app-table {
     min-width: 520px;
   }
 
-  .app-table td, .app-table th {
+  .app-table td,
+  .app-table th {
     padding: 10px 12px;
     font-size: 0.82rem;
   }
-  
-  .table-container, .chart-card {
+
+  .table-container,
+  .chart-card {
     border-radius: 12px;
   }
 
@@ -1531,14 +1636,14 @@ body.light-theme .app-table tbody tr:hover {
     min-height: 220px;
     max-height: 260px;
   }
-  
+
   .login-card {
     padding: 28px 20px;
     border-radius: 18px;
     width: calc(100% - 24px);
     max-width: 420px;
   }
-  
+
   .modal-content {
     border-radius: 16px;
     width: calc(100% - 20px);
@@ -1553,20 +1658,22 @@ body.light-theme .app-table tbody tr:hover {
   .page-title h1 {
     font-size: 1.35rem;
   }
-  
-  /* Reduce backdrop-filter on mobile for performance */
-  .sidebar, .login-card, .modal-content, .metric-card, .chart-card, .table-container {
-    backdrop-filter: none;
-    background: rgba(13, 20, 30, 0.95);
+
+  /* Bottom-sheet style modals on phones */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
   }
-  
-  body.light-theme .sidebar, 
-  body.light-theme .login-card,
-  body.light-theme .modal-content,
-  body.light-theme .metric-card, 
-  body.light-theme .chart-card, 
-  body.light-theme .table-container {
-    background: rgba(240, 240, 245, 0.95);
+
+  .modal-content {
+    max-height: 92dvh;
+    border-radius: 20px 20px 0 0;
+    width: 100%;
+    margin: 0;
+  }
+
+  .modal-overlay.active .modal-content {
+    transform: translateY(0) !important;
   }
 }
 
@@ -1610,6 +1717,7 @@ body.light-theme .app-table tbody tr:hover {
   bottom: 0;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   z-index: 2000;
   display: flex;
   flex-direction: column;
@@ -1618,7 +1726,8 @@ body.light-theme .app-table tbody tr:hover {
   gap: 16px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.15s ease;
+  will-change: opacity;
 }
 
 #loading-hud.active {
@@ -1857,12 +1966,15 @@ body.light-theme .app-table tbody tr:hover {
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);
+    /* Promote to own compositing layer — eliminates repaint on slide */
+    will-change: transform;
+    contain: layout style;
   }
-  
+
   .sidebar.active {
     transform: translateX(0);
   }
-  
+
   .main-content {
     margin-left: 0;
     width: 100%;
@@ -1876,13 +1988,18 @@ body.light-theme .app-table tbody tr:hover {
     align-items: flex-start;
     padding-top: max(16px, env(safe-area-inset-top));
   }
-  
+
   .hamburger-menu-btn {
     display: flex;
   }
-  
+
   .top-bar-actions .connection-indicator {
-    display: none; /* Hide details on small screens to save space */
+    display: none;
+  }
+
+  /* Show dimming backdrop when sidebar opens */
+  #sidebar-backdrop {
+    display: block;
   }
 }
 

@@ -42,6 +42,43 @@ const CACHE_TTL   = 120;            // Cache lifetime in seconds (2 minutes)
 const CACHE_PFX   = "OMS_V4_";     // Cache key namespace — bump version to bust all caches
 const LOW_STOCK_THRESHOLD = 10;     // Units below this trigger a low-stock email alert
 
+/** Helper to fetch a setting value dynamically from the App_Settings sheet */
+function getAppSettingValue(key, defaultValue) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) return defaultValue;
+    
+    // Try to get from cache first
+    const cache = CacheService.getScriptCache();
+    const cached = cache.get("OMS_SETTING_" + key);
+    if (cached !== null) return cached;
+    
+    const sheet = ss.getSheetByName("App_Settings");
+    if (!sheet) return defaultValue;
+    
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const keyIdx = headers.indexOf("key");
+    const valIdx = headers.indexOf("value");
+    if (keyIdx < 0 || valIdx < 0) return defaultValue;
+    
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][keyIdx]).trim() === key) {
+        const val = String(data[i][valIdx]).trim();
+        cache.put("OMS_SETTING_" + key, val, CACHE_TTL); // Cache for duration
+        return val;
+      }
+    }
+  } catch (err) {
+    console.error("Error fetching setting " + key + ": " + err.toString());
+  }
+  return defaultValue;
+}
+
+function getOrphanageName() {
+  return getAppSettingValue("orphanage_name", ORPHANAGE_NAME);
+}
+
 /**
  * Sheet schemas: keys define sheet names, values define column headers in order.
  * Changing a column name here will cause it to be added dynamically on next setup.
@@ -812,7 +849,7 @@ function sendNotification(ss, body) {
       if (!payload.donorEmail) return err("payload.donorEmail is required.");
       MailApp.sendEmail({
         to:      payload.donorEmail,
-        subject: "💙 Thank You for Your Generous Donation to OrphanCare!",
+        subject: "💙 Thank You for Your Generous Donation to " + getOrphanageName() + "!",
         body:    buildDonorThankYouEmail(payload)
       });
       // Also mark as thanked in the Donations sheet
@@ -830,7 +867,7 @@ function sendNotification(ss, body) {
       if (items.length === 0) return ok({ message: "No low-stock items to notify about." });
       MailApp.sendEmail({
         to:      ADMIN_EMAIL,
-        subject: "⚠️ OrphanCare — Low Kitchen Stock Alert (" + items.length + " items)",
+        subject: "⚠️ " + getOrphanageName() + " — Low Kitchen Stock Alert (" + items.length + " items)",
         body:    buildLowStockEmail(items)
       });
       return ok({ message: "Low-stock alert sent to admin." });
@@ -840,7 +877,7 @@ function sendNotification(ss, body) {
       if (!payload.guardianEmail) return err("payload.guardianEmail is required.");
       MailApp.sendEmail({
         to:      payload.guardianEmail,
-        subject: "📋 School Fee Reminder — OrphanCare",
+        subject: "📋 School Fee Reminder — " + getOrphanageName(),
         body:    buildFeeReminderEmail(payload)
       });
       return ok({ message: "Fee reminder sent to " + payload.guardianEmail });
@@ -849,7 +886,7 @@ function sendNotification(ss, body) {
     case "medicalAlert": {
       MailApp.sendEmail({
         to:      ADMIN_EMAIL,
-        subject: "🏥 OrphanCare — Medical Alert: " + (payload.childName || "Unknown"),
+        subject: "🏥 " + getOrphanageName() + " — Medical Alert: " + (payload.childName || "Unknown"),
         body:    buildMedicalAlertEmail(payload)
       });
       return ok({ message: "Medical alert sent to admin." });
@@ -858,7 +895,7 @@ function sendNotification(ss, body) {
     case "childAdmission": {
       MailApp.sendEmail({
         to:      ADMIN_EMAIL,
-        subject: "👶 New Child Admission — OrphanCare",
+        subject: "👶 New Child Admission — " + getOrphanageName(),
         body:    buildAdmissionEmail(payload)
       });
       return ok({ message: "Admission notification sent." });
@@ -907,7 +944,7 @@ function triggerSaveNotifications(ss, sheetName, record, operation) {
     if (sheetName === "Donations" && operation === "insert" && record.donorEmail) {
       MailApp.sendEmail({
         to:      record.donorEmail,
-        subject: "💙 Thank You for Donating to OrphanCare!",
+        subject: "💙 Thank You for Donating to " + getOrphanageName() + "!",
         body:    buildDonorThankYouEmail(record)
       });
       // Mark as thanked
@@ -1205,27 +1242,29 @@ function err(message) {
 // ─────────────────────────────────────────────────────────────
 
 function buildWelcomeEmail(fullName, role) {
+  const name = getOrphanageName();
   return `Dear ${fullName},
 
-Welcome to OrphanCare Cloud! Your account has been successfully created.
+Welcome to ${name} Cloud! Your account has been successfully created.
 
 Role Assigned : ${role}
-Platform      : OrphanCare Orphanage Management System
+Platform      : ${name} Orphanage Management System
 
 Your access has been activated. Please sign in at the application link shared with you.
 
 If you did not create this account, please contact the administrator immediately at ${ADMIN_EMAIL}.
 
 With gratitude,
-OrphanCare Cloud Team
+${name} Cloud Team
 ────────────────────────────────────
 This is an automated security message.`;
 }
 
 function buildAdminRegistrationOTPEmail(fullName, email, otp) {
+  const name = getOrphanageName();
   return `Hello Super Admin,
 
-A new Admin account registration is pending your approval on OrphanCare Cloud.
+A new Admin account registration is pending your approval on ${name} Cloud.
 
   Applicant Name  : ${fullName}
   Applicant Email : ${email}
@@ -1241,13 +1280,14 @@ This code expires in 5 minutes.
 Share this code with the applicant only if you authorize their Admin access.
 If you did not expect this registration, ignore this email.
 
-OrphanCare Security Engine`;
+${name} Security Engine`;
 }
 
 function buildDonorThankYouEmail(payload) {
+  const name = getOrphanageName();
   return `Dear ${payload.donorName || "Valued Donor"},
 
-On behalf of every child at ${ORPHANAGE_NAME}, we extend our deepest gratitude for your generous contribution.
+On behalf of every child at ${name}, we extend our deepest gratitude for your generous contribution.
 
   Donation Amount : ${payload.amount || "—"}
   Donation Type   : ${payload.donationType || "—"}
@@ -1257,7 +1297,7 @@ On behalf of every child at ${ORPHANAGE_NAME}, we extend our deepest gratitude f
 Your gift directly funds warm meals, education, medical care, and a safe home for our children.
 
 With heartfelt thanks,
-The ${ORPHANAGE_NAME} Team
+The ${name} Team
 ────────────────────────────────────
 This is an automated receipt. Retain for tax purposes.`;
 }
@@ -1266,6 +1306,7 @@ function buildLowStockEmail(items) {
   const itemList = items.map(i =>
     `  • ${i.itemName || "Unknown Item"} — Current Stock: ${i.currentStock} ${i.unit || "units"}`
   ).join("\n");
+  const name = getOrphanageName();
 
   return `Hello Admin,
 
@@ -1276,12 +1317,13 @@ ${itemList}
 Please place a restock order as soon as possible to ensure uninterrupted meal service for the children.
 
 Regards,
-OrphanCare Stock Management System
+${name} Stock Management System
 ────────────────────────────────────
 Generated: ${new Date().toLocaleString()}`;
 }
 
 function buildFeeReminderEmail(payload) {
+  const name = getOrphanageName();
   return `Dear Guardian,
 
 This is a friendly reminder regarding outstanding school fees for ${payload.childName || "your child"}.
@@ -1294,11 +1336,12 @@ Kindly arrange payment at your earliest convenience to avoid disruption to the c
 For any queries, please contact the orphanage administration at ${ADMIN_EMAIL}.
 
 Thank you for your continued support,
-OrphanCare Education Department`;
+${name} Education Department`;
 }
 
 function buildMedicalAlertEmail(payload) {
-  return `MEDICAL ALERT — OrphanCare System
+  const name = getOrphanageName();
+  return `MEDICAL ALERT — ${name} System
 
 A critical medical event has been recorded:
 
@@ -1307,12 +1350,13 @@ A critical medical event has been recorded:
   Doctor Notes  : ${payload.doctorNotes || "—"}
   Timestamp     : ${new Date().toLocaleString()}
 
-Immediate attention may be required. Please review the child's medical record in the OrphanCare system.
+Immediate attention may be required. Please review the child's medical record in the ${name} system.
 
-OrphanCare Medical Module`;
+${name} Medical Module`;
 }
 
 function buildAdmissionEmail(payload) {
+  const name = getOrphanageName();
   return `New Child Admission Notification
 
 A new child has been enrolled into the orphanage:
@@ -1324,5 +1368,5 @@ A new child has been enrolled into the orphanage:
 
 Please ensure a room and bed assignment, school enrollment, and a medical profile are created promptly.
 
-OrphanCare Home Management System`;
+${name} Home Management System`;
 }
